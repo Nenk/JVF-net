@@ -34,21 +34,21 @@ def load_face(face_path):
 
 
 class VGG_Face_Dataset(Dataset):
-    def __init__(self, face_voice_dir, mode, load_raw=False):
-        face_voice_list = np.load(face_voice_dir, allow_pickle=True)
-        self.face_voice_list = face_voice_list.tolist()
-        self.speakers_num = len(self.face_voice_list)  # 计算发言者数量
+    def __init__(self, face_list, mode, load_raw=False):
+        # face_list = np.load(face_voice_dir, allow_pickle=True)
+        self.face_list = face_list
+        self.speakers_num = len(self.face_list)  # 计算发言者数量
 
     def __getitem__(self, index):
-        positive = self.face_voice_list[index]
-        label = positive['id_num']
-        real_face_path = positive['face_path'][np.random.randint(0, len(positive['face_path']))]
+        face_data = self.face_list[index]
+        label = int(face_data['id'])
+        real_face_path = face_data['filepath']
         real_face = load_face(real_face_path)
 
         return real_face, label
 
     def __len__(self):
-        return len(self.face_voice_list)
+        return len(self.face_list)
 
 
 class Dataset(Dataset):

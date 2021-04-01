@@ -5,13 +5,13 @@ import os
 import shutil
 import gc
 import time
-
+import tqdm
 import numpy as np
 import torch
 from torch.autograd import Variable
 
 from utils import utils
-import tqdm
+
 
 class Trainer(object):
 
@@ -62,17 +62,15 @@ class Trainer(object):
         self.checkpoint_dir = checkpoint_dir
         self.log_file = log_file
 
-
     def print_log(self, log_str):
         with open(self.log_file, 'a') as f:
             f.write(log_str + '\n')
-
 
     def train(self):
 
         # int(math.ceil(1. * self.max_iter / len(self.train_loader))) # 117
         print("train max epoch {0}".format(self.max_epoch))
-        for epoch in tqdm.trange(self.epoch, self.max_epoch, desc='Train', ncols=80):
+        for epoch in tqdm.trange(self.epoch, self.max_epoch, desc='Train', ncols=80):  # 调整进度条宽度为80
             self.epoch = epoch
 
             epoch_time = utils.AverageMeter()
@@ -80,8 +78,7 @@ class Trainer(object):
             data_time = utils.AverageMeter()
             losses = utils.AverageMeter()
             top1 = utils.AverageMeter()
-            top5 = utils.AverageMeter()
-
+            # top5 = utils.AverageMeter()
 
             self.model.train()
             self.optim.zero_grad()
@@ -106,7 +103,6 @@ class Trainer(object):
                         self.validate()
                 if self.cuda:
                     imgs, target = imgs.cuda(), target.cuda(async=True)
-                # imgs, target = Variable(imgs), Variable(target)
 
                 output = self.model(imgs)
                 loss = self.criterion(output, target)
@@ -117,7 +113,6 @@ class Trainer(object):
                 prec1, prec5 = utils.accuracy(output.data, target.data, topk=(1, 5))
                 losses.update(loss.item(), imgs.size(0))
                 top1.update(prec1[0], imgs.size(0))
-                top5.update(prec5[0], imgs.size(0))
 
                 self.optim.zero_grad()
                 loss.backward()
@@ -133,25 +128,25 @@ class Trainer(object):
                               'Time: {batch_time.val:.3f}  Data: {data_time.val:.3f}\t' \
                               'Loss: {loss.val:.4f} ({loss.avg:.4f})\t' \
                               'Prec@1: {top1.val:.3f} ({top1.avg:.3f})\t' \
-                              'Prec@5: {top5.val:.3f} ({top5.avg:.3f})\tlr {lr:.6f}'.format(
+                              'lr {lr:.6f}'.format(
                         batch_idx, len(self.train_loader), epoch=self.epoch, iteration=self.iteration,
                         lr=self.optim.param_groups[0]['lr'],
-                        batch_time=batch_time, data_time=data_time, loss=losses, top1=top1, top5=top5)
+                        batch_time=batch_time, data_time=data_time, loss=losses, top1=top1)
                     print(log_str)
                     self.print_log(log_str)
 
             is_best = top1.avg > self.best_top1
             self.best_top1 = max(top1.avg, self.best_top1)
-            self.best_top5 = max(top5.avg, self.best_top5)
+
             # 轮次信息输出
             epoch_time.update(time.time() - epoch_end)
             log_str = '\n Train_summary: [{0}/{1}/{top1.count:}]\tepoch: {epoch:}\titer: {iteration:}\t' \
                       'Epoch Time: {epoch_time.val:.3f} ({epoch_time.avg:.3f}) Loss: {loss.avg:.4f}\t' \
-                      'Prec@1: {top1.avg:.3f}  Prec@5: {top5.avg:.3f}  BestPrec@1:{best_top1:.3F} \t'\
+                      'Prec@1: {top1.avg:.3f}  BestPrec@1:{best_top1:.3F} \t'\
                       'lr {lr:.6f}'.format(
                 batch_idx, len(self.train_loader), epoch=self.epoch, iteration=self.iteration,
                 lr=self.optim.param_groups[0]['lr'], epoch_time=epoch_time, data_time=data_time,
-                loss=losses, top1=top1, top5=top5, best_top1=self.best_top1)
+                loss=losses, top1=top1, best_top1=self.best_top1)
 
             print(log_str)
             self.print_log(log_str)
@@ -168,12 +163,11 @@ class Trainer(object):
                 'batch_time': batch_time,
                 'losses': losses,
                 'top1': top1,
-                'top5': top5,
             }, checkpoint_file)
             if is_best:
                 shutil.copy(checkpoint_file, os.path.join(self.checkpoint_dir, 'model_best-{}.pth.tar'.format(self.timestamp)))
-            if (self.epoch) % 500 == 0 and self.epoch !=1:  # save each 10 epoch
-                shutil.copy(checkpoint_file, os.path.join(self.checkpoint_dir, 'checkpoint-{}-{}.pth.tar'.format(self.epoch, time.strftime("%Y-%m-%d,%H,%M"))))
+            # if (self.epoch) % 500 == 0 and self.epoch !=1:  # save each 10 epoch
+            #     shutil.copy(checkpoint_file, os.path.join(self.checkpoint_dir, 'checkpoint-{}-{}.pth.tar'.format(self.epoch, time.strftime("%Y-%m-%d,%H,%M"))))
 
             # if self.iteration >= self.max_iter:
             #     break

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from submodule.resblock import Block, OptimizedBlock
-
+from torchsummary import summary
 
 # RestNet for visual stream
 class ResNet(nn.Module):
@@ -98,6 +98,11 @@ if __name__ == '__main__':
     face_a = torch.empty((2, 3, 224, 224))
     face_b = torch.empty((2, 3, 224, 224))
     audio = torch.empty((2, 1, 512, 300))
-    net = SVHFNet()
-    output = net(face_a, face_b, audio)
-    print(output.shape)
+    net = AudioStream()
+    print(net)
+    device = torch.device('cuda')
+    net = net.to(device)
+    summary(net, (1, 512, 1000))
+
+    # output = net(face_a, face_b, audio)
+    # print(output.shape)
