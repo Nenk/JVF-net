@@ -50,22 +50,21 @@ if __name__ == '__main__':
     # --------------------hyperparameters & data loaders-------------------- #
     attribution = "identity"  # identity, emotion 类型
     face_list, actor_num = csv_to_list(configurations['csv_list'])
-    include_top = True  #
 
     train_cfg = configurations['training']
     net_cfg = configurations['network']
     cuda = torch.cuda.is_available()
 
     face_dataset = VGG_Face_Dataset(face_list, 'train')
-    face_loader = DataLoader(face_dataset, batch_size=48, drop_last=False,
-                             shuffle=True, num_workers=8, pin_memory=True)
+    face_loader = DataLoader(face_dataset, batch_size=train_cfg['batch_size'], drop_last=False,
+                             shuffle=True, num_workers=0, pin_memory=True)
 
     val_loader = None
     interval_validate = len(face_loader)    # 验证间隔
 
     #  ------------------model & loss & optimizer---------------------  #
     if net_cfg['type'] == 'resnet':
-        model = ResNet(num_classes=face_dataset.speakers_num, include_top=include_top)
+        model = ResNet(num_classes=face_dataset.speakers_num, include_top=True)
         # utils.load_state_dict(model, weight_file)
         # model.fc.reset_parameters()
 
@@ -89,13 +88,13 @@ if __name__ == '__main__':
     top1 = utils.AverageMeter()
 
     # --------------------train & validation & save checkpoint---------------- #
-    # epoch = 0
+    epoch = 0
     last_iteration = 0
     print_freq = 1
     best_top1 = 0
     max_epoch = train_cfg['max_epoch']
     print("train max epoch {0}".format(max_epoch))
-    for epoch in tqdm.trange(0, max_epoch, desc='Train', ncols=80):  # 调整进度条宽度为80
+    for epoch in tqdm.trange(epoch, max_epoch, desc='Train', ncols=80):  # 调整进度条宽度为80
         # self.epoch = epoch
         # top5 = utils.AverageMeter()
         model.train()
@@ -128,9 +127,13 @@ if __name__ == '__main__':
                 raise ValueError('loss is nan while training')
 
             # measure accuracy and record loss
-            prec1 = utils.accuracy(output.data, target.data, topk=(1))
+            pred = output.argmax(dim=1, keepdim=False)
+            correct = pred.eq(target.view_as(pred)).sum().item()/train_cfg['batch_size']  # tensor --> python number
+            # prec1 = utils.accuracy(output.data, target.data, topk=[1])
+            # ----------------------------------------
+
             losses.update(loss.item(), imgs.size(0))
-            top1.update(prec1[0], imgs.size(0))
+            top1.update(correct, imgs.size(0))
 
             optim.zero_grad()
             loss.backward()
@@ -138,7 +141,7 @@ if __name__ == '__main__':
             if lr_scheduler is not None:
                 lr_scheduler.step()  # update lr
 
-            # ---------信息输出----------------- #
+            # ---------迭次信息输出----------------- #
             batch_time.update(time.time() - iter_end)
             iter_end = time.time()
             if iteration % print_freq == 0:
@@ -156,15 +159,15 @@ if __name__ == '__main__':
         is_best = top1.avg > best_top1
         best_top1 = max(top1.avg, best_top1)
 
-        # 轮次信息输出
+        # -------------------轮次信息输出--------------------- #
         epoch_time.update(time.time() - epoch_end)
-        log_str = '\n Train_summary: [{0}/{1}/{top1.count:}]\t epoch: {epoch:}\t iter: {iteration:}\t' \
+        log_str = '\n Train_epoch_summary: [{0}/{1}/{top1.count:}]\t epoch: {epoch:}\t iter: {iteration:}\t' \
                   'Epoch Time: {epoch_time.val:.3f} Loss: {loss.avg:.4f}\t' \
-                  'Prec@1: {top1.avg:.3f}  BestPrec@1:{best_top1:.3F} \t'\
-                  'lr {lr:.6f}'.format(
+                  'Prec@1: {top1.avg:.3f}  BestPrec@1:{best_top1:.3F} lr {lr:.6f}\t' \
+                  .format(
                    batch_idx, len(face_loader),  epoch=epoch,  iteration=iteration,
-                   lr= optim.param_groups[0]['lr'], epoch_time=epoch_time, data_time=data_time,
-                   loss = losses, top1=top1, best_top1= best_top1)
+                   epoch_time=epoch_time, loss = losses,
+                   top1=top1, best_top1= best_top1, lr= optim.param_groups[0]['lr'],)
 
         print(log_str)
         log.write(log_str)
@@ -184,5 +187,6 @@ if __name__ == '__main__':
             'top1': top1,
         }, checkpoint_file)
         if is_best:
-            shutil.copy(checkpoint_file, os.path.join(['checkpoint_dir'],
-                                                      '{}-model_best.pth'.format(net_cfg['type'])))
+            best_file = os.path.join(configurations['checkpoint_dir'], '{}-model_best-{}.pth'.format(net_cfg['type'],timestamp))
+            shutil.copy(checkpoint_file, best_file)
+            pass
