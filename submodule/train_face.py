@@ -22,7 +22,7 @@ from utils import utils
 
 timestamp = time.strftime("%Y-%m-%d,%H,%M")
 
-configurations = {
+configure = {
     'network': dict(
         type='resnet',
         class_num = 24),
@@ -49,10 +49,10 @@ configurations = {
 if __name__ == '__main__':
     # --------------------hyperparameters & data loaders-------------------- #
     attribution = "identity"  # identity, emotion 类型
-    face_list, actor_num = csv_to_list(configurations['csv_list'])
+    face_list, actor_num = csv_to_list(configure['csv_list'])
 
-    train_cfg = configurations['training']
-    net_cfg = configurations['network']
+    train_cfg = configure['training']
+    net_cfg = configure['network']
     cuda = torch.cuda.is_available()
 
     face_dataset = VGG_Face_Dataset(face_list, 'train')
@@ -61,10 +61,11 @@ if __name__ == '__main__':
 
     val_loader = None
     interval_validate = len(face_loader)    # 验证间隔
+    net_cfg['class_num'] = actor_num
 
     #  ------------------model & loss & optimizer---------------------  #
     if net_cfg['type'] == 'resnet':
-        model = ResNet(num_classes=face_dataset.speakers_num, include_top=True)
+        model = ResNet(class_num=net_cfg['class_num'], include_top=False)
         # utils.load_state_dict(model, weight_file)
         # model.fc.reset_parameters()
 
@@ -78,7 +79,7 @@ if __name__ == '__main__':
 
     # lr_scheduler = torch.optim.lr_scheduler.StepLR(optim, train_cfg['step_size'], gamma=train_cfg['gamma'], last_epoch=-1)
     lr_scheduler = None
-    log = utils.print_log(configurations['log_dir'], [net_cfg['type'],timestamp])
+    log = utils.print_log(configure['log_dir'], [net_cfg['type'],timestamp])
     log.write(str(net_cfg))
     log.write(str(train_cfg))
     epoch_time = utils.AverageMeter()
@@ -172,21 +173,24 @@ if __name__ == '__main__':
         print(log_str)
         log.write(log_str)
 
-        # 保存模型
-        checkpoint_file = os.path.join(configurations['checkpoint_dir'],
-                                       '{}-checkpoint-{}.pth'.format(net_cfg['type'],time.strftime("%Y-%m-%d,%H,%M")))
-        torch.save({
-            'epoch': epoch,
-            'iteration': iteration,
-            'arch': model.__class__.__name__,     # class name
-            'optim_state_dict': optim.state_dict(),
-            'model_state_dict': model.state_dict(),
-            'best_top1':  best_top1,
-            'batch_time': batch_time,
-            'losses': losses,
-            'top1': top1,
-        }, checkpoint_file)
-        if is_best:
-            best_file = os.path.join(configurations['checkpoint_dir'], '{}-model_best-{}.pth'.format(net_cfg['type'],timestamp))
-            shutil.copy(checkpoint_file, best_file)
-            pass
+        # ----------------保存模型----------------------------------------#
+        if epoch % 5 == 0 or epoch==1:
+            checkpoint_file = os.path.join(configure['checkpoint_dir'],
+                                           '{}-checkpoint-{}.pth'.format(net_cfg['type'],time.strftime("%Y-%m-%d,%H,%M")))
+            torch.save({
+                'epoch': epoch,
+                'iteration': iteration,
+                'arch': model.__class__.__name__,     # class name
+                # 'optim_state_dict': optim.state_dict(),
+                'model_state_dict': model.state_dict(),
+                'best_top1':  best_top1,
+                'losses': losses,
+                'top1': top1,
+            }, checkpoint_file)
+            if is_best:
+                best_file = os.path.join(configure['checkpoint_dir'], '{}-model_best-{}.pth'.format(net_cfg['type'],timestamp))
+                shutil.copy(checkpoint_file, best_file)
+
+        losses.reset()
+        top1.reset()
+

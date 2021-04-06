@@ -122,7 +122,7 @@ def csv_to_list(csv_list):
     actor_num = []
     emotion_num = []
     with open(csv_list) as f:
-        lines = f.readlines()[1:128]
+        lines = f.readlines()[1:]
         for line in lines:
             # print(line)
             folder_name, filepath, id, name = line.rstrip("\n").split('\t')

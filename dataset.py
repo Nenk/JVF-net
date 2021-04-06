@@ -37,7 +37,7 @@ class VGG_Face_Dataset(Dataset):
     def __init__(self, face_list, mode, load_raw=False):
         # face_list = np.load(face_voice_dir, allow_pickle=True)
         self.face_list = face_list
-        self.speakers_num = len(self.face_list)  # 计算发言者数量
+        # self.speakers_num = len(self.face_list)  # 计算发言者数量
 
     def __getitem__(self, index):
         face_data = self.face_list[index]

@@ -14,7 +14,7 @@ from pase.models.frontend import wf_builder
 import model3
 
 class ResNet(nn.Module):
-    def __init__(self, ch=64, num_classes=1000, activation=F.relu, include_top =False):
+    def __init__(self, ch=64, class_num=1000, activation=F.relu, include_top =False):
         super(ResNet, self).__init__()
         self.include_top = include_top
 
@@ -27,7 +27,7 @@ class ResNet(nn.Module):
         self.block6 = Block(ch * 16, ch * 16, activation=activation, downsample=False)
         self.avgpool = nn.AvgPool2d(7, stride=1)
         self.fc1 = nn.Linear(1024, 2048)
-        self.fc2 = nn.Linear(2048, num_classes)
+        self.fc2 = nn.Linear(2048, class_num)
 
     def forward(self, x):
         h = x
@@ -42,8 +42,8 @@ class ResNet(nn.Module):
         # h = torch.sum(h, (2, 3))  # Global sum pooling.
 
         h = self.avgpool(h)
-        if not self.include_top:
-            return x
+        # if not self.include_top:
+        #     return x
 
         h = h.view(h.size(0), -1)
         h = self.fc1(h)
