@@ -58,26 +58,26 @@ def one_image_test(image_path, model, device):
 def validate(test_loader, model, device):
 
     correct = 0
-    total = 0
 
+    total = 0
+    acorrect_list =[]
     # Validate
     model.eval()
     with torch.no_grad():
         for batch_index, (inputs, targets) in enumerate(test_loader):
             inputs, targets = inputs.to(device), targets.to(device)
-            targets = targets.squeeze()
+            # targets = targets.squeeze()
             outputs = model(inputs)
 
             _, predicted = outputs.max(1)
-            total += targets.size(0)
-            correct += predicted.eq(targets).sum().item()
-            print(" == test acc: {:6.3f}% | true label : {}, predict as : {}".format(
-                    100.0 * correct / total, targets, predicted))
-        # logger.info(
-        #     "   == test acc: {:6.3f}% , model best prec : {:6.3f}%".format(
-        #         100.0 * correct / total, best_prec
-        #     )
-        # )
+            batch_size = targets.size(0)
+            total += batch_size
+            correct +=  predicted.eq(targets).sum().item()
+
+            print("batch_ix [{:4d}/{:4d}] test acc: {:6.3f}% ".
+                  format(batch_index, len(test_loader), 100.0 * correct/total))
+
+        print("average test acc: {:6.3f}% ".format( 100.0 * correct/total))
 
 if __name__ == '__main__':
 
@@ -102,7 +102,6 @@ if __name__ == '__main__':
     checkpoint = torch.load(ckpt_file_pth)
     ckpt = checkpoint['model_state_dict']
     model.load_state_dict(checkpoint['model_state_dict'], strict =True)
-
 
     # print the test information
     batch_time = utils.AverageMeter()
