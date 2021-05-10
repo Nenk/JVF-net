@@ -1,12 +1,5 @@
 from __future__ import division
 
-import os
-import sys
-import time
-import datetime
-import argparse
-import tqdm
-
 import torch
 import numpy as np
 import torchvision.transforms as transforms
@@ -16,6 +9,9 @@ from torch.autograd import Variable
 from utils import utils
 from dataset import VGG_Face_Dataset, load_face
 from utils.parse_dataset import csv_to_list
+
+from pytorch_metric_learning import losses, miners, distances, reducers, testers
+from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
 
 configure = {
     'network': dict(
@@ -55,10 +51,30 @@ def one_image_test(image_path, model, device):
     print("img : {}, predict as : {}".format(image_path, predicted[0]))
 
 
-def validate(test_loader, model, device):
 
+
+
+class validate_for_triplet():
+    def __init__(self, train_set, test_set, model, accuracy_calculator, batch_size):
+        train_embeddings, train_labels = get_all_embeddings(train_set, model, batch_size)
+        test_embeddings, test_labels = get_all_embeddings(test_set, model)
+        print("Computing accuracy")
+
+    def get_accuracy(self, ):
+        accuracies = accuracy_calculator.get_accuracy(test_embeddings,
+                                                      train_embeddings,
+                                                      test_labels,
+                                                      train_labels,
+                                                      False)
+    print("Test set accuracy (Precision@1) = {}".format(accuracies["precision_at_1"]))
+
+    def get_all_embeddings(dataset, model):
+        tester = testers.BaseTester(batch_size=4,
+                                    dataloader_num_workers=8,)
+        return tester.get_all_embeddings(dataset, model)
+
+def validate_for_softmax(test_loader, model, device):
     correct = 0
-
     total = 0
     acorrect_list =[]
     # Validate

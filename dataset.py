@@ -22,19 +22,34 @@ Transform = transforms.Compose(
 
 def load_face(face_path):
     # NOTE: 3 channels are in BGR order
-    img = Image.open(face_path)
+    img = Image.open(face_path).convert('RGB')
     # plt.imshow(img)
     # plt.axis("off")
     # plt.show()
-    if img.layers != 3 or img.size != (224, 224):    # 灰度图转为彩图
-        img = img.convert('RGB').resize((224, 224), resample=Image.BILINEAR)
+    if img.size != (224, 224):    # 灰度图转为彩图
+       img = img.resize((224, 224), resample=Image.BILINEAR)
 
     img = Transform(img)
     return img
 
+class RAVDESS_Face_Dataset(Dataset):
+    def __init__(self, face_list):
+        self.face_list = face_list
+
+    def __getitem__(self, index):
+        face_data = self.face_list[index]
+        actor_label = int(face_data['actor_id'])
+        emotion_label = int(face_data['emotion'])
+        real_face_path = face_data['image_path']
+        real_face = load_face(real_face_path)
+        return real_face, emotion_label
+
+    def __len__(self):
+        return len(self.face_list)
+
 
 class VGG_Face_Dataset(Dataset):
-    def __init__(self, face_list, mode, load_raw=False):
+    def __init__(self, face_list):
         # face_list = np.load(face_voice_dir, allow_pickle=True)
         self.face_list = face_list
         # self.speakers_num = len(self.face_list)  # 计算发言者数量
@@ -42,7 +57,7 @@ class VGG_Face_Dataset(Dataset):
     def __getitem__(self, index):
         face_data = self.face_list[index]
         label = int(face_data['id'])
-        real_face_path = face_data['filepath']
+        real_face_path = face_data['image_path']
         real_face = load_face(real_face_path)
 
         return real_face, label

@@ -27,7 +27,7 @@ class ResNet(nn.Module):
         self.block6 = Block(ch * 16, ch * 16, activation=activation, downsample=False)
         self.avgpool = nn.AvgPool2d(7, stride=1)
         self.fc1 = nn.Linear(1024, 2048)
-        self.fc2 = nn.Linear(2048, class_num)
+        self.fc2 = nn.Linear(2048, 128)
 
     def forward(self, x):
         h = x

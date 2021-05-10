@@ -2,13 +2,14 @@ import os
 import csv
 import copy
 import numpy as np
+from random import shuffle
 import shutil
 import string
 
 
 def get_dataset_files(data_dir, data_ext, celeb_ids):
     """
-    从文件夹中寻找所有voice和face数据
+    从文件夹中读取voice或face数据
     """
     data_list = []
     # # rename image folder(face) name
@@ -111,41 +112,96 @@ def get_voclexb_csv(csv_files, voice_folder, face_folder):
 
     return len(actor_dict)
 
-def csv_to_list(csv_list):
+
+def get_RAVDESS_face_csv(image_data_pth, csv_pth, data_ext):
+    """
+    从音频特征或图像文件夹中读取对应文件, 在csv中写入该文件路径,情感,身份,性别标签
+    :param image_data_pth: 图像文件抽取中间为代表图像
+    :param csv_pth: csv文件输出位置
+    :param data_ext: .npy或者.png格式
+    :return:
+    """
+    data_list = []
+    list_name ={"voice":"wav", "image":"png", "mfcc":"mfcc", "fbank":"fbank", "spectrogram":"spectrogram"}
+
+    file_path = list_name[data_ext]
+    headers = ['actor_id','gender','vocal_channel','emotion','emotion_intensity','image_path']
+    emotions = ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']
+    # read data directory
+    for root, folders, filenames in os.walk(image_data_pth):      # 音频数据集根目录, 子目录, 文件名
+        folders.sort()
+        filenames.sort()
+        for filename in filenames:
+            if filename.endswith("png"):              # 校验文件后缀名, wav或者npy
+                face_path = os.path.join(root, filename)
+                flag = root.split('/')[-1].split('-')
+                if flag[0] == '01':  # only use video
+                    gend = "female" if int(flag[6])%2 else "male"
+                    data_list.append({'actor_id':flag[6], 'gender':gend, 'vocal_channel':flag[1],
+                                      'emotion':flag[2], 'emotion_intensity':flag[3], 'image_path': face_path})
+                    print("face_image_path:{0:}, actor:{1:}".format(face_path, flag[6]))
+
+    print("sample numbers:{}".format(len(data_list)))
+
+    csv_pth = os.path.join(csv_pth, 'RAVDESS_image.csv'.format(list_name[data_ext]))
+    print("csv_pth:{}".format(csv_pth))
+    with open(csv_pth,'w',newline='') as f:
+        f_scv = csv.DictWriter(f,headers)
+        f_scv.writeheader()
+        f_scv.writerows(data_list)
+
+def csv_to_list(csv_files, val_ratio=0.9):
     """
     从list.csv中读取路径, 写入list中,
     :param data_params:
     :return: 数据路径以及标签,speaker数量
     """
-    voice_list = []
-    face_list = []
+    train_list = []
+    test_list = []
     actor_num = []
     emotion_num = []
-    with open(csv_list) as f:
-        lines = f.readlines()[1:]
-        for line in lines:
-            # print(line)
-            folder_name, filepath, id, name = line.rstrip("\n").split('\t')
-            actor_num.append(int(id))
-            # emotion_num.append(int(emotion))
-            # voice_list.append({'filepath': wave_path, 'name_id': actor_ID, 'emotion_id': emotion})
-            face_list.append({'filepath': filepath, 'id': id, 'name': name})
 
-    return face_list, max(actor_num)+1
+    with open(csv_files) as train_f:
+        print("Read csv_files from: {}".format(csv_files))
+        files = train_f.readlines()[1:]
+        shuffle(files)
+        N_valid_files = int(len(files[1:]) * val_ratio)
+        valid_files = files[:N_valid_files]
+        train_files = files[N_valid_files:]
+
+        for line in train_files[:]:
+            actor_id, gender, vocal_channel, emotion, _, image_path = line.rstrip("\n").split(',')
+            actor_num.append(int(actor_id))
+            emotion_num.append(int(emotion))
+            # voice_list.append({'filepath': wave_path, 'name_id': actor_ID, 'emotion_id': emotion})
+            train_list.append({'image_path': image_path, 'actor_id': actor_id, 'emotion': emotion})
+
+        for line in valid_files[:]:
+            actor_id, gender, vocal_channel, emotion, _, image_path = line.rstrip("\n").split(',')
+            actor_num.append(int(actor_id))
+            emotion_num.append(int(emotion))
+            # voice_list.append({'filepath': wave_path, 'name_id': actor_ID, 'emotion_id': emotion})
+            test_list.append({'image_path': image_path, 'actor_id': actor_id, 'emotion': emotion})
+
+    return train_list, test_list, max(actor_num), max(emotion_num)
+
+
+def RAVDESS_csv_to_list():
+    pass
 
 
 if __name__ == '__main__':
     # get_RAVDESS_dataset(DATASET_PARAMETERS)
     # data_dir = 'data/RAVDESS/fbank'
 
-    csv_files = './dataset/voclexb-VGG_face-datasets/vox1_meta.csv'
-    voice_folder = '/home/fz/2-VF-feature/JVF-net/dataset/voclexb-VGG_face-datasets/2-voice-wav'
-    face_folder = '/home/fz/2-VF-feature/JVF-net/dataset/voclexb-VGG_face-datasets/1-face'
-    num = get_voclexb_csv(csv_files, voice_folder, face_folder)
+    # csv_files = './dataset/voclexb-VGG_face-datasets/vox1_meta.csv'
+    # voice_folder = '/home/fz/2-VF-feature/JVF-net/dataset/voclexb-VGG_face-datasets/2-voice-wav'
+    # face_folder = '/home/fz/2-VF-feature/JVF-net/dataset/voclexb-VGG_face-datasets/1-face'
+    # num = get_voclexb_csv(csv_files, voice_folder, face_folder)
 
-    # voice_data_pth = './datasets/RAVDESS/2 wave-Actor1-24-32k'
-    # image_data_pth = './datasets/RAVDESS/1 image-Actor1-24-single'
-    # csv_pth = "./datasets/RAVDESS"
-    # get_RAVDESS_csv(voice_data_pth, image_data_pth, csv_pth, 'voice')
+    voice_data_pth = '../datasets/RAVDESS/2 wave-Actor1-24-32k'
+    image_data_pth = '/home/fz/2-VF-feature/JVF-net/dataset/RAVDESS/1 image-Actor1-24'
+    csv_pth = "/home/fz/2-VF-feature/JVF-net/dataset/RAVDESS"
+    get_RAVDESS_face_csv( image_data_pth, csv_pth, 'image')
 
 
