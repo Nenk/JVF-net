@@ -34,7 +34,12 @@ def load_face(face_path):
 
 class RAVDESS_Face_Dataset(Dataset):
     def __init__(self, face_list):
+        self.label = []
         self.face_list = face_list
+        for face_data in self.face_list:
+            self.label.append(int(face_data['emotion']))
+
+
 
     def __getitem__(self, index):
         face_data = self.face_list[index]

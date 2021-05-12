@@ -5,15 +5,42 @@ import sys
 import torch
 import shutil
 import pickle
+import logging
 
+
+class Logger(object):
+    """
+    日志模块记录 所输出的文本
+    """
+    def __init__(self, save_path, times):
+        self.logger = logging.getLogger('lossesLogger')
+        self.logFile = save_path
+        if not os.path.exists(self.logFile):
+            os.makedirs(self.logFile)
+            # logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+        handler = logging.FileHandler(self.logFile + '/logFile_{0}.log'.format(times))
+        # handler.setLevel(logging.DEBUG)
+        console_handler = logging.StreamHandler(sys.stdout)
+        self.logger.addHandler(hdlr=handler)
+        self.logger.addHandler(console_handler)
+        self.logger.setLevel(logging.DEBUG)
+        self.logger.info("starting logger model...")
+
+    def write(self, out):
+        console_handler = logging.StreamHandler(sys.stdout)
+        self.logger.addHandler(console_handler)
+        self.logger.setLevel(logging.DEBUG)
+        self.logger.info(out)
 
 class print_log(object):
-    def __init__(self, log_dir, model_info):
-        self.log_file = os.path.join(log_dir, '{}-{}.log'.format(model_info[0], model_info[1]))
+    def __init__(self, log_dir, times):
+        self.log_file = os.path.join(log_dir, 'logFile_{0}.log'.format(times))
+        self.write("starting logger model...")
 
     def write(self, str):
         with open(self.log_file, 'a') as f:
             f.write(str + '\n')
+            print(str)
 
 def load_state_dict_VGG(model, weight):
 

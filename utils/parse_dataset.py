@@ -163,7 +163,7 @@ def csv_to_list(csv_files, val_ratio=0.9):
 
     with open(csv_files) as train_f:
         print("Read csv_files from: {}".format(csv_files))
-        files = train_f.readlines()[1:]
+        files = train_f.readlines()[1:1000]
         shuffle(files)
         N_valid_files = int(len(files[1:]) * val_ratio)
         valid_files = files[:N_valid_files]

@@ -6,12 +6,13 @@ import torchvision.transforms as transforms
 from model.model4 import ResNet
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
-from utils import utils
+from utils import util
 from dataset import VGG_Face_Dataset, load_face
 from utils.parse_dataset import csv_to_list
 
 from pytorch_metric_learning import losses, miners, distances, reducers, testers
 from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
+from pytorch_metric_learning.utils import accuracy_calculator
 
 configure = {
     'network': dict(
@@ -51,27 +52,41 @@ def one_image_test(image_path, model, device):
     print("img : {}, predict as : {}".format(image_path, predicted[0]))
 
 
+class YourCalculator(AccuracyCalculator):
+    def calculate_precision_at_2(self, knn_labels, query_labels, **kwargs):
+        return accuracy_calculator.precision_at_k(knn_labels, query_labels[:, None], 2)
 
+    def calculate_fancy_mutual_info(self, query_labels, cluster_labels, **kwargs):
+        return 1
+
+    def requires_clustering(self):
+        return super().requires_clustering() + ["fancy_mutual_info"]
+
+    def requires_knn(self):
+        return super().requires_knn() + ["precision_at_2"]
 
 
 class validate_for_triplet():
-    def __init__(self, train_set, test_set, model, accuracy_calculator, batch_size):
-        train_embeddings, train_labels = get_all_embeddings(train_set, model, batch_size)
-        test_embeddings, test_labels = get_all_embeddings(test_set, model)
-        print("Computing accuracy")
+    def __init__(self, model, accuracy_calculator, batch_size):
+        self.model = model
+        self.accuracy_calculator = accuracy_calculator
+        self.batch_size = batch_size
 
-    def get_accuracy(self, ):
-        accuracies = accuracy_calculator.get_accuracy(test_embeddings,
+    def get_accuracy(self, train_set, test_set):
+        train_embeddings, train_labels = self.get_all_embeddings(train_set, self.model)
+        test_embeddings, test_labels = self.get_all_embeddings(test_set, self.model)
+        accuracies = self.accuracy_calculator.get_accuracy(test_embeddings,
                                                       train_embeddings,
                                                       test_labels,
                                                       train_labels,
                                                       False)
-    print("Test set accuracy (Precision@1) = {}".format(accuracies["precision_at_1"]))
+        print("Test set accuracy (Precision@1) = {}".format(accuracies["precision_at_1"]))
 
-    def get_all_embeddings(dataset, model):
-        tester = testers.BaseTester(batch_size=4,
+    def get_all_embeddings(self, dataset, model):
+        tester = testers.BaseTester(batch_size=self.batch_size,
                                     dataloader_num_workers=8,)
         return tester.get_all_embeddings(dataset, model)
+
 
 def validate_for_softmax(test_loader, model, device):
     correct = 0
@@ -120,15 +135,15 @@ if __name__ == '__main__':
     model.load_state_dict(checkpoint['model_state_dict'], strict =True)
 
     # print the test information
-    batch_time = utils.AverageMeter()
-    losses = utils.AverageMeter()
-    top1 = utils.AverageMeter()
-    top5 = utils.AverageMeter()
+    batch_time = util.AverageMeter()
+    losses = util.AverageMeter()
+    top1 = util.AverageMeter()
+    top5 = util.AverageMeter()
 
     # one_image_prediction
     model.to(device)
     # one_image_test(image_path=face_image, model=model, device=device)
-    validate(test_loader=face_loader,model=model,device=device)
+    # validate(test_loader=face_loader,model=model,device=device)
 
     # for batch_idx, (imgs, target, img_files, class_ids) in tqdm.tqdm(
     #         enumerate(self.val_loader), total=len(self.val_loader),
