@@ -11,13 +11,13 @@ import pytorch_metric_learning
 # import model.model4 as model4
 from torch.utils.data import DataLoader
 from dataset import VGG_Face_Dataset, RAVDESS_Face_Dataset
-from model.model4 import ResNet
+from model.SVHF import ResNet
 from utils.parse_dataset import csv_to_list
 from utils import util, config
 from utils.util import Logger, print_log
 from test_face import validate_for_triplet
 
-from pytorch_metric_learning import losses, miners, distances, reducers, samplers, testers
+from pytorch_metric_learning import losses, miners, distances, reducers, samplers, trainers, testers
 from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
 
 
@@ -28,26 +28,28 @@ class trainer():
         # --------------------hyperparameters & data loaders-------------------- #
         self.cfg = config.configure
 
-        train_list, test_list, actor_num, emotion_num = csv_to_list(self.cfg['csv_list'], 0.2)
+        train_list, test_list, actor_num, emotion_num = csv_to_list(self.cfg['csv_list'], 0.1)
         self.train_cfg = self.cfg['training']
         self.net_cfg = self.cfg['network']
+        batch_size = self.train_cfg['batch_size']
+        num_workers = 8
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.face_train_dataset = RAVDESS_Face_Dataset(train_list)
         self.face_test_dataset = RAVDESS_Face_Dataset(test_list)
-        self.sampler = samplers.MPerClassSampler(self.face_train_dataset.label, m=4, batch_size=None,
+        self.sampler = samplers.MPerClassSampler(self.face_train_dataset.label, m=5, batch_size=batch_size,
                                                  length_before_new_iter=len(self.face_train_dataset))
 
-        self.train_loader = DataLoader(self.face_train_dataset, batch_size=self.train_cfg['batch_size'], drop_last=False,
-                                       sampler=self.sampler, shuffle=False, num_workers=0, pin_memory=True)
+        self.train_loader = DataLoader(self.face_train_dataset, batch_size=batch_size, drop_last=False,
+                                       sampler=self.sampler, shuffle=True, num_workers=num_workers, pin_memory=True)
 
-        self.val_loader = DataLoader(self.face_test_dataset, batch_size=self.train_cfg['batch_size'], drop_last=False,
-                                shuffle=True, num_workers=0, pin_memory=True)
+        self.val_loader = DataLoader(self.face_test_dataset, batch_size=batch_size, drop_last=False,
+                                     shuffle=True, num_workers=num_workers, pin_memory=True)
 
         print("Train_loader numbers: {0:}, val_loader numbers: {1:}".format(len(train_list), len(test_list)))
         self.net_cfg['class_num'] = emotion_num
 
-        #  ------------------model & loss & optimizer---------------------  #
+        # --------------------model & loss & optimizer----------------------- #
         if self.net_cfg['type'] == 'resnet':
             self.model = ResNet(class_num=self.net_cfg['class_num'], include_top=False)
             # utils.load_state_dict(model, weight_file)
@@ -63,6 +65,8 @@ class trainer():
 
         self.loss_func = losses.TripletMarginLoss(margin=0.2, reducer=reducer, distance=distance)
         self.mining_func = miners.TripletMarginMiner(margin=0.2, type_of_triplets="semihard", distance=distance)
+        # self.mining_func = miners.MultiSimilarityMiner(epsilon=0.1)
+
         self.optim = torch.optim.Adam(self.model.parameters(), lr=self.train_cfg['lr'])
 
         self.lr_scheduler = None
@@ -81,14 +85,31 @@ class trainer():
         self.last_iteration = 0
         # best_top1 = 0
         self.print_freq = 1
-        self.start_epoch  = 0
+        self.start_epoch  = 1
         self.max_epoch = self.train_cfg['max_epoch']
 
     # --------------------train & validation ---------------------------- #
+    def train_metric(self):
+
+        models = {"trunk": self.model }
+        optimizers = {"trunk_optimizer":  self.optim }
+        loss_funcs = {"metric_loss":  self.loss_func}
+        mining_funcs = {"tuple_miner": self.mining_func }
+        trainer_metric = trainers.MetricLossOnly(models,
+                                optimizers,
+                                self.train_cfg['batch_size'],
+                                loss_funcs,
+                                mining_funcs,
+                                self.face_train_dataset,
+                                sampler=self.sampler,
+                                dataloader_num_workers=8,)
+        trainer_metric.train(num_epochs=300)
+
+
     def train(self):
         print("Start training")
 
-        for epoch in range(self.start_epoch, self.max_epoch):  # 调整进度条宽度为80
+        for epoch in range(self.start_epoch, self.max_epoch+1):  # 调整进度条宽度为80
 
             self.model.train()
             self.optim.zero_grad()
@@ -96,7 +117,7 @@ class trainer():
             epoch_end = time.time()
             iter_end = time.time()
 
-            for batch_idx, (imgs, target) in enumerate(self.train_loader):
+            for batch_idx, (imgs, target) in enumerate(self.train_loader,start=1):
                 iteration = batch_idx + epoch * len(self.train_loader)
 
                 # self.iteration = iteration
@@ -137,12 +158,12 @@ class trainer():
 
             # -------------------轮次信息输出--------------------- #
             self.epoch_time.update(time.time() - epoch_end)
-            log_str = '\n Epoch_summary: [{0}/{1}]\t epoch: {epoch:}\t ' \
+            log_str = '\n Epoch_summary: epoch: {epoch:}\t ' \
                       'iter: {iteration:}\t' \
                       'Epoch Time: {epoch_time.val:.3f} Loss: {loss.avg:.4f}\t' \
-                      'lr {lr:.6f}' .format( \
-                 batch_idx, len(self.train_loader), epoch=epoch,
-                 iteration=iteration, epoch_time=self.epoch_time, loss=self.loss,
+                      'lr {lr:.6f}' .format(\
+                 epoch=epoch, iteration=iteration,
+                 epoch_time=self.epoch_time, loss=self.loss,
                  lr=self.optim.param_groups[0]['lr'], )
 
             self.logger.write(log_str)
@@ -150,6 +171,7 @@ class trainer():
             # ----------------保存模型----------------------------------------#
             self.checkpoint_file = os.path.join(self.cfg['checkpoint_dir'],'{}-checkpoint-{}.pth'.
                                                 format(self.net_cfg['type'], timestamp))
+            self.validate(self.checkpoint_file)
             torch.save({
                 'epoch': epoch,
                 'iteration': iteration,
@@ -159,7 +181,6 @@ class trainer():
                 'loss': self.loss,
             }, self.checkpoint_file)
 
-            self.validate(self.checkpoint_file)
             if epoch % 20 == 0:
                 best_file = os.path.join(self.cfg['checkpoint_dir'],'{}-model-epoch-{}-T-{}.pth'.
                                          format(self.net_cfg['type'], epoch, time.strftime("%Y-%m-%d-%H:%M")))
@@ -172,7 +193,7 @@ class trainer():
             pass
 
     def validate(self, checkpoint_file):
-        print("start validate")
+        self.logger.write("start validate")
         torch.cuda.empty_cache()
         checkpoint = torch.load(checkpoint_file)
         ckpt = checkpoint['model_state_dict']
@@ -181,11 +202,12 @@ class trainer():
         self.validate_for_triplet = validate_for_triplet(self.model, accuracy_calculator, batch_size = 24)
         with torch.no_grad():
             # self.model.eval()
-            self.validate_for_triplet.get_accuracy(self.face_train_dataset, self.face_test_dataset)
+            accuracies = self.validate_for_triplet.get_accuracy(self.face_train_dataset, self.face_test_dataset)
+            self.logger.write("Test set accuracy (Precision@1) = {}".format(accuracies["precision_at_1"]))
 
 if __name__ == '__main__':
     Trainer = trainer()
     Trainer.train()
-    checkpoint_file = "/home/fz/2-VF-feature/JVF-net/saved/resnet-model-epoch-20-T-2021-05-12-14:56.pth"
 
-    Trainer.validate(checkpoint_file)
+    # checkpoint_file = "/home/fz/2-VF-feature/JVF-net/saved/resnet-model-epoch-20-T-2021-05-12-14:56.pth"
+    # Trainer.validate(checkpoint_file)

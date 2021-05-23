@@ -112,8 +112,7 @@ def get_voclexb_csv(csv_files, voice_folder, face_folder):
 
     return len(actor_dict)
 
-
-def get_RAVDESS_face_csv(image_data_pth, csv_pth, data_ext):
+def get_RAVDESS_voice_csv(data_pth, csv_pth, data_ext):
     """
     从音频特征或图像文件夹中读取对应文件, 在csv中写入该文件路径,情感,身份,性别标签
     :param image_data_pth: 图像文件抽取中间为代表图像
@@ -122,35 +121,72 @@ def get_RAVDESS_face_csv(image_data_pth, csv_pth, data_ext):
     :return:
     """
     data_list = []
-    list_name ={"voice":"wav", "image":"png", "mfcc":"mfcc", "fbank":"fbank", "spectrogram":"spectrogram"}
+    list_name ={"image":"png", "voice":"wav", "mfcc":"mfcc", "fbank":"fbank", "spectrogram":"spectrogram"}
 
-    file_path = list_name[data_ext]
-    headers = ['actor_id','gender','vocal_channel','emotion','emotion_intensity','image_path']
+    file_ext = list_name[data_ext]
+    headers = ['actor_id','gender','vocal_channel','emotion','emotion_intensity','voice_path']
     emotions = ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']
     # read data directory
-    for root, folders, filenames in os.walk(image_data_pth):      # 音频数据集根目录, 子目录, 文件名
+    for root, folders, filenames in os.walk(data_pth):      # 音频数据集根目录, 子目录, 文件名
         folders.sort()
         filenames.sort()
         for filename in filenames:
-            if filename.endswith("png"):              # 校验文件后缀名, wav或者npy
-                face_path = os.path.join(root, filename)
-                flag = root.split('/')[-1].split('-')
+            if filename.endswith(file_ext):              # 校验文件后缀名, wav或者npy
+                voice_path = os.path.join(root, filename)
+                flag = filename.split('.')[0].split('-')
                 if flag[0] == '01':  # only use video
                     gend = "female" if int(flag[6])%2 else "male"
                     data_list.append({'actor_id':flag[6], 'gender':gend, 'vocal_channel':flag[1],
-                                      'emotion':flag[2], 'emotion_intensity':flag[3], 'image_path': face_path})
-                    print("face_image_path:{0:}, actor:{1:}".format(face_path, flag[6]))
+                                      'emotion':flag[2], 'emotion_intensity':flag[3], 'voice_path': voice_path})
+                    print("voice_{0:}_path:{1:}, actor:{2:}".format(data_ext, voice_path, flag[6]))
 
     print("sample numbers:{}".format(len(data_list)))
 
-    csv_pth = os.path.join(csv_pth, 'RAVDESS_image.csv'.format(list_name[data_ext]))
+    csv_pth = os.path.join(csv_pth, 'RAVDESS_{}.csv'.format(file_ext))
     print("csv_pth:{}".format(csv_pth))
     with open(csv_pth,'w',newline='') as f:
         f_scv = csv.DictWriter(f,headers)
         f_scv.writeheader()
         f_scv.writerows(data_list)
 
-def csv_to_list(csv_files, val_ratio=0.9):
+def get_RAVDESS_face_csv(data_pth, csv_pth, data_ext):
+    """
+    从音频特征或图像文件夹中读取对应文件, 在csv中写入该文件路径,情感,身份,性别标签
+    :param image_data_pth: 图像文件抽取中间为代表图像
+    :param csv_pth: csv文件输出位置
+    :param data_ext: .npy或者.png格式
+    :return:
+    """
+    data_list = []
+    list_name ={"image":"png", "voice":"wav", "mfcc":"mfcc", "fbank":"fbank", "spectrogram":"spectrogram"}
+
+    file_ext = list_name[data_ext]
+    headers = ['actor_id','gender','vocal_channel','emotion','emotion_intensity','image_path']
+    emotions = ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']
+    # read data directory
+    for root, folders, filenames in os.walk(data_pth):      # 音频数据集根目录, 子目录, 文件名
+        folders.sort()
+        filenames.sort()
+        for filename in filenames:
+            if filename.endswith(file_ext):              # 校验文件后缀名, wav或者npy
+                image_path = os.path.join(root, filename)
+                flag = root.split('/')[-1].split('-')
+                if flag[0] == '01':  # only use video
+                    gend = "female" if int(flag[6])%2 else "male"
+                    data_list.append({'actor_id':flag[6], 'gender':gend, 'vocal_channel':flag[1],
+                                      'emotion':flag[2], 'emotion_intensity':flag[3], 'image_path': image_path})
+                    print("face_{0:}_path:{1:}, actor:{2:}".format(data_ext, image_path, flag[6]))
+
+    print("sample numbers:{}".format(len(data_list)))
+
+    csv_pth = os.path.join(csv_pth, 'RAVDESS_image.csv')
+    print("csv_pth:{}".format(csv_pth))
+    with open(csv_pth,'w',newline='') as f:
+        f_scv = csv.DictWriter(f,headers)
+        f_scv.writeheader()
+        f_scv.writerows(data_list)
+
+def csv_to_list(csv_files, val_ratio=0.1):
     """
     从list.csv中读取路径, 写入list中,
     :param data_params:
@@ -163,9 +199,9 @@ def csv_to_list(csv_files, val_ratio=0.9):
 
     with open(csv_files) as train_f:
         print("Read csv_files from: {}".format(csv_files))
-        files = train_f.readlines()[1:1000]
+        files = train_f.readlines()[1:]
         shuffle(files)
-        N_valid_files = int(len(files[1:]) * val_ratio)
+        N_valid_files = int(len(files[:]) * val_ratio)
         valid_files = files[:N_valid_files]
         train_files = files[N_valid_files:]
 
@@ -199,9 +235,9 @@ if __name__ == '__main__':
     # face_folder = '/home/fz/2-VF-feature/JVF-net/dataset/voclexb-VGG_face-datasets/1-face'
     # num = get_voclexb_csv(csv_files, voice_folder, face_folder)
 
-    voice_data_pth = '../datasets/RAVDESS/2 wave-Actor1-24-32k'
+    voice_data_pth = '/home/fz/2-VF-feature/JVF-net/dataset/RAVDESS/2 wave-Actor1-24-16k'
     image_data_pth = '/home/fz/2-VF-feature/JVF-net/dataset/RAVDESS/1 image-Actor1-24'
     csv_pth = "/home/fz/2-VF-feature/JVF-net/dataset/RAVDESS"
-    get_RAVDESS_face_csv( image_data_pth, csv_pth, 'image')
-
+    # get_RAVDESS_face_csv( image_data_pth, csv_pth, 'image')
+    get_RAVDESS_voice_csv( voice_data_pth, csv_pth, 'voice')
 

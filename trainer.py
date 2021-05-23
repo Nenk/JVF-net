@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from dataset import Dataset
+from dataset import Face_Voice_Dataset
 from dataset import custom_collate_fn
 import importlib
 import os
@@ -20,21 +20,12 @@ class Solver():
                 else:
                     pass
         self.config = config
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         # load_raw = True if config['model'] == 'model4' or config['model'] == 'model5' else False
         load_raw =False
-        self.train_data = Dataset(data_dir=config['data_dir'],
-                                  mode='train',
-                                  fixed_offset=False,
-                                  load_raw=load_raw)
-        self.val_data = Dataset(data_dir=config['data_dir'],
-                                mode='val',
-                                fixed_offset=True,
-                                load_raw=load_raw)
-        self.test_data = Dataset(data_dir=config['data_dir'],
-                                 mode='test',
-                                 fixed_offset=True,
-                                 load_raw=load_raw)
+        self.train_data = Face_Voice_Dataset(data_dir=config['data_dir'], fixed_offset=False, load_raw=load_raw)
+        self.val_data = Face_Voice_Dataset(data_dir=config['data_dir'],fixed_offset=True, load_raw=load_raw)
+        self.test_data = Face_Voice_Dataset(data_dir=config['data_dir'], fixed_offset=True, load_raw=load_raw)
         self.train_loader = DataLoader(self.train_data,
                                        batch_size=config['batch_size'],
                                        num_workers=config['num_workers'],

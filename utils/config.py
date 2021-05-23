@@ -8,9 +8,9 @@ configure = {
     'training': dict(
         start_epoch=0,
         start_iteration=0,
-        batch_size=32,
+        batch_size=40,
         max_epoch=200,
-        lr=0.02,
+        lr=0.0001,
         momentum=0.9,
         weight_decay=0.0001,
         gamma=0.9,  # "lr_policy: step"

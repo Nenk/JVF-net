@@ -9,10 +9,10 @@ from submodule.resblock import Block, OptimizedBlock
 # sys.path.append(pase_path)
 # print('Add pase to system path:', pase_path)
 sys.path.append("/home/fz/2-VF-feature/JVF-net/model")
-
 from pase.models.frontend import wf_builder
 import model3
 
+# we pretrained the network by triplet loss
 class ResNet(nn.Module):
     def __init__(self, ch=64, class_num=1000, activation=F.relu, include_top =False):
         super(ResNet, self).__init__()

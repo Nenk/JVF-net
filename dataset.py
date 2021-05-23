@@ -4,10 +4,10 @@ import torch
 import librosa
 import random
 import wave
-import librosa
+
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
-
+import json
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 
@@ -32,6 +32,24 @@ def load_face(face_path):
     img = Transform(img)
     return img
 
+
+class VGG_Face_Dataset(Dataset):
+    def __init__(self, face_list):
+        # face_list = np.load(face_voice_dir, allow_pickle=True)
+        self.face_list = face_list
+        # self.speakers_num = len(self.face_list)  # 计算发言者数量
+
+    def __getitem__(self, index):
+        face_data = self.face_list[index]
+        label = int(face_data['id'])
+        real_face_path = face_data['image_path']
+        real_face = load_face(real_face_path)
+
+        return real_face, label
+
+    def __len__(self):
+        return len(self.face_list)
+
 class RAVDESS_Face_Dataset(Dataset):
     def __init__(self, face_list):
         self.label = []
@@ -53,32 +71,88 @@ class RAVDESS_Face_Dataset(Dataset):
         return len(self.face_list)
 
 
-class VGG_Face_Dataset(Dataset):
-    def __init__(self, face_list):
-        # face_list = np.load(face_voice_dir, allow_pickle=True)
-        self.face_list = face_list
-        # self.speakers_num = len(self.face_list)  # 计算发言者数量
+class WavDataset(Dataset):
 
-    def __getitem__(self, index):
-        face_data = self.face_list[index]
-        label = int(face_data['id'])
-        real_face_path = face_data['image_path']
-        real_face = load_face(real_face_path)
+    def __init__(self, data_root, data_cfg_file, split,
+                 transform=None, sr=None,
+                 cache_on_load=False,
+                 verbose=True,
+                 *args, **kwargs):
+        # sr: sampling rate, (Def: None, the one in the wav header)
+        self.sr = sr
+        self.data_root = data_root
+        self.cache_on_load = cache_on_load
+        self.data_cfg_file = data_cfg_file
+        if not isinstance(data_cfg_file, str):
+            raise ValueError('Please specify a path to a cfg '
+                             'file for loading data.')
 
-        return real_face, label
+        self.split = split
+        self.transform = transform
+
+        with open(data_cfg_file, 'r') as data_cfg_f:
+            self.data_cfg = json.load(data_cfg_f)
+            self.spk_info = self.data_cfg['speakers']
+            if verbose:
+                print('dataset.WavDataset:Found {} speakers info'.format(len(self.spk_info)))
+                wavs = self.data_cfg[split]['data']
+                print('dataset.WavDataset:Found {} files in {} split'.format(len(wavs), split))
+                # spks = self.data_cfg[split]['speakers']
+                # print('dataset.WavDataset:Found {} speakers in {} split'.format(len(spks), split))
+                self.total_wav_dur = int(self.data_cfg[split]['total_wav_dur'])
+
+            self.wavs = wavs
+        self.wav_cache = {}
+
 
     def __len__(self):
-        return len(self.face_list)
+        return len(self.wavs)
+
+    def retrieve_cache(self, fname, cache):
+        if (self.cache_on_load or self.preload_wav) and fname in cache:
+            return cache[fname]
+        else:
+            wav, rate = librosa.load(fname)
+            wav = wav.numpy().squeeze()
+            #fix in case wav is stereo, in which case
+            #pick first channel only
+            if wav.ndim > 1:
+                wav = wav[:,0]
+            wav = wav.astype(np.float32)
+            if self.cache_on_load:
+                cache[fname] = wav
+            return wav
+
+    def __getitem__(self, index):
+        if sample_probable(self.zero_speech_p):
+            wav = zerospeech(int(5 * 16e3))
+            if self.zero_speech_transform is not None:
+                wav = self.zero_speech_transform(wav)
+        else:
+            uttname = self.wavs[index]['filename']
+            wname = os.path.join(self.data_root, uttname)
+            wav = self.retrieve_cache(wname, self.wav_cache)
+            if self.transform is not None:
+                wav = self.transform(wav)
+        rets = [wav]
+        if self.return_uttname:
+            rets = rets + [uttname]
+        if self.return_spk:
+            rets = rets + [self.spk2idx[self.wavs[index]['speaker']]]
+        if len(rets) == 1:
+            return rets[0]
+        else:
+            return rets
 
 
-class Dataset(Dataset):
-    def __init__(self, data_dir, mode, fixed_offset, load_raw=False):
+class RAVDESS_voice_Dataset(Dataset):
+    def __init__(self, data_root, data_cfg_file, split, fixed_offset, load_raw=False):
         # self.data_dir = data_dir
         self.fixed_offset = fixed_offset
         self.load_raw = load_raw
-        all_triplets = np.load(data_dir, allow_pickle=True)
-        self.all_triplets = all_triplets.tolist()
-        self.speakers_num = len(self.all_triplets)  # 计算发言者数量
+
+
+
 
 
     def __getitem__(self, p_index):
@@ -121,7 +195,7 @@ class Dataset(Dataset):
         if self.load_raw:
             y = np.expand_dims(y, axis=0)
             return y
-        spect = Dataset.get_spectrogram(y)
+        spect = Face_Voice_Dataset.get_spectrogram(y)
         for i in range(spect.shape[1]):
             f_bin = spect[:, i]
             f_bin_mean = np.mean(f_bin)

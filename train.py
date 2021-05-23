@@ -1,12 +1,12 @@
 import argparse
 import yaml
-from solver import Solver
+from trainer import Solver
 
 
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--config_path', type=str, default='./option/model4.yaml')
+    parser.add_argument('--config_path', type=str, default='./option/SVHF.yaml')
 
     args = parser.parse_args()
 

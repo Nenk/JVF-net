@@ -80,7 +80,8 @@ class validate_for_triplet():
                                                       test_labels,
                                                       train_labels,
                                                       False)
-        print("Test set accuracy (Precision@1) = {}".format(accuracies["precision_at_1"]))
+        return accuracies
+
 
     def get_all_embeddings(self, dataset, model):
         tester = testers.BaseTester(batch_size=self.batch_size,

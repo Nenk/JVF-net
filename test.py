@@ -1,6 +1,6 @@
 import argparse
 import yaml
-from solver import Solver
+from trainer import Solver
 
 
 def main():
