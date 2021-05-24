@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from dataset import Face_Voice_Dataset
+from dataset import Face_voice_Dataset
 from dataset import custom_collate_fn
 import importlib
 import os

@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from PIL import Image
 from scipy.io import wavfile
 
-Transform = transforms.Compose(
+img_transform = transforms.Compose(
     [transforms.ToTensor(),
      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
 )
@@ -29,7 +29,7 @@ def load_face(face_path):
     if img.size != (224, 224):    # 灰度图转为彩图
        img = img.resize((224, 224), resample=Image.BILINEAR)
 
-    img = Transform(img)
+    img = img_transform(img)
     return img
 
 
@@ -71,8 +71,7 @@ class RAVDESS_Face_Dataset(Dataset):
         return len(self.face_list)
 
 
-class WavDataset(Dataset):
-
+class RAVDESS_voice_Dataset(Dataset):
     def __init__(self, data_root, data_cfg_file, split,
                  transform=None, sr=None,
                  cache_on_load=False,
@@ -100,7 +99,6 @@ class WavDataset(Dataset):
                 # spks = self.data_cfg[split]['speakers']
                 # print('dataset.WavDataset:Found {} speakers in {} split'.format(len(spks), split))
                 self.total_wav_dur = int(self.data_cfg[split]['total_wav_dur'])
-
             self.wavs = wavs
         self.wav_cache = {}
 
@@ -124,16 +122,12 @@ class WavDataset(Dataset):
             return wav
 
     def __getitem__(self, index):
-        if sample_probable(self.zero_speech_p):
-            wav = zerospeech(int(5 * 16e3))
-            if self.zero_speech_transform is not None:
-                wav = self.zero_speech_transform(wav)
-        else:
-            uttname = self.wavs[index]['filename']
-            wname = os.path.join(self.data_root, uttname)
-            wav = self.retrieve_cache(wname, self.wav_cache)
-            if self.transform is not None:
-                wav = self.transform(wav)
+
+        uttname = self.wavs[index]['filename']
+        wname = os.path.join(self.data_root, uttname)
+        wav = self.retrieve_cache(wname, self.wav_cache)
+        if self.transform is not None:
+            wav = self.transform(wav)
         rets = [wav]
         if self.return_uttname:
             rets = rets + [uttname]
@@ -145,7 +139,7 @@ class WavDataset(Dataset):
             return rets
 
 
-class RAVDESS_voice_Dataset(Dataset):
+class voice_Dataset(Dataset):
     def __init__(self, data_root, data_cfg_file, split, fixed_offset, load_raw=False):
         # self.data_dir = data_dir
         self.fixed_offset = fixed_offset
