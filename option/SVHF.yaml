@@ -26,6 +26,7 @@ val_every: 1
 save_every: 1
 val_sample_dir: ./val_sample
 save_path: ./saved/JVF-net/
+max_ckpts: 5
 
 tensorboard: True
 multi_gpu: False

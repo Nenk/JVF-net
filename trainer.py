@@ -8,10 +8,10 @@ import shutil
 
 from torch.utils.data import DataLoader
 from dataset import RAVDESS_voice_Dataset, RAVDESS_face_Dataset, custom_collate_fn
-from utils.util import Logger, print_log, AverageMeter, cycle
+from utils.util import Logger, print_log, AverageMeter, cycle, Saver
 from tensorboardX import SummaryWriter
 from pase.models.frontend import wf_builder
-from model.SVHF import AudioStream, ResNet
+from model.SVHF import AudioStream, ResNet, SVHFNet
 
 from test import validate_for_VF_triplet
 from pytorch_metric_learning import losses, miners, distances, reducers, samplers, trainers, testers
@@ -77,16 +77,6 @@ class TripletMarginMiner(BaseTupleMiner):
 
 class trainer(object):
     def __init__(self, config):
-        def weight_init(m):
-            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
-                if config['weight_init'] == 'xavier_uniform':
-                    nn.init.xavier_uniform_(m.weight)
-                elif config['weight_init'] == 'kaiming_uniform':
-                    nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
-                elif config['weight_init'] == 'gaussian':
-                    nn.init.normal_(m.weight, mean=0, std=0.01)
-                else:
-                    pass
 
         self.opt = config
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -105,7 +95,7 @@ class trainer(object):
         self.face_batch_size = self.opt['face_batch_size']
         self.num_workers = self.opt['num_workers']
 
-        self.voice_sampler = samplers.MPerClassSampler(self.voice_train_data.label, m=1, batch_size=self.voice_batch_size,
+        self.voice_sampler = samplers.MPerClassSampler(self.voice_train_data.label, m=2, batch_size=self.voice_batch_size,
                                                  length_before_new_iter=len(self.voice_train_data))
         self.face_sampler = samplers.MPerClassSampler(self.face_train_data.label, m=3, batch_size=self.face_batch_size,
                                                  length_before_new_iter=len(self.face_train_data))
@@ -132,18 +122,14 @@ class trainer(object):
         self.face_train_iterator = iter(cycle(self.face_train_loader))
         self.face_val_iterator = iter(cycle(self.face_val_loader))
         model_name = 'model.{}'.format(self.opt['model_name'])
-        model = importlib.import_module(model_name)
+        # model = importlib.import_module(model_name)
 
-        # self.model = model.SVHFNet(config['res_ckpt_path'],
-        #                            config['pase_cfg_path'],
-        #                            config['pase_ckpt_path']).to(self.device)
-        # print('Don\'t apply any weight init method for model4.')
+
         self.pase_cfg_path = config['pase_cfg_path']
         if config['load_model']:
             print('Load pretrained model: {}, {}'.format(config['res_ckpt_path'], config['pase_ckpt_path']))
-            self.model = model.SVHFNet(config['res_ckpt_path'],
-                                       self.pase_cfg_path ,
-                                       config['pase_ckpt_path']).to(self.device)
+            self.model = SVHFNet(config['res_ckpt_path'],
+                                 self.pase_cfg_path, config['pase_ckpt_path']).to(self.device)
 
         if config['multi_gpu']:
             print('Use Multi GPU.')
@@ -166,19 +152,24 @@ class trainer(object):
             print('Use Adam optimizer.')
             self.aud_optim = torch.optim.Adam(params=self.model.aud_stream.parameters(), lr=0.0001)
             self.vis_optim = torch.optim.Adam(params=self.model.vis_stream.parameters(), lr=0.00005)
-        # self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optim,
-        #                                                             factor=config['lr_decay_factor'],
-        #                                                             patience=config['patience'],
-        #                                                             verbose=True)
+
 
         self.aud_scheduler = torch.optim.lr_scheduler.StepLR(self.aud_optim, step_size=50,
                                                              gamma=0.5, last_epoch=-1)
         self.vis_scheduler = torch.optim.lr_scheduler.StepLR(self.vis_optim, step_size=50,
                                                              gamma=0.5, last_epoch=-1)
 
+        self.savers = []
         self.timestamp = time.strftime("%Y-%h-%d:%H:%M")
         self.save_path = os.path.join(self.opt['save_path'], self.timestamp)
-        self.max_epoch = self.opt['epoch']
+        self.savers.append(Saver(self.model.aud_stream, self.save_path,
+                           max_ckpts=self.opt['max_ckpts'],
+                           optimizer=self.aud_optim, prefix='pase-'))
+
+        self.savers.append(Saver(self.model.vis_stream, self.save_path,
+                           max_ckpts=self.opt['max_ckpts'],
+                           optimizer=self.vis_optim, prefix='resnet-'))
+
 
         # -----------------------log and print ------------------------------ #
         self.tensorboard = self.opt['tensorboard']
@@ -202,6 +193,7 @@ class trainer(object):
         self.bpe = len(self.voice_train_loader)
         self.print_freq = 1
         self.start_epoch = 1
+        self.max_epoch = self.opt['epoch']
 
     def train_(self):
         self.logger.write('Start training..')
@@ -251,95 +243,66 @@ class trainer(object):
                                self.epoch_time.val, self.loss.avg,
                                self.aud_optim.param_groups[0]['lr'], self.vis_optim.param_groups[0]['lr'],))
 
-            self.pase_ckpt_file = os.path.join(self.save_path,'{}-checkpoint-{}.pth'.\
-                                               format('PASE', self.timestamp))
-            torch.save({
-                'epoch': epoch,
-                'arch': self.model.aud_stream.__class__.__name__,  # class name
-                'model_state_dict': self.model.aud_stream.state_dict(),
-                'loss': self.loss,
-            }, self.pase_ckpt_file)
 
-            self.resnet_ckpt_file = os.path.join(self.save_path,'{}-checkpoint-{}.pth'.\
-                                                 format('resnet', self.timestamp))
-            torch.save({
-                'epoch': epoch,
-                'arch': self.model.vis_stream.__class__.__name__,  # class name
-                'model_state_dict': self.model.vis_stream.state_dict(),
-                'loss': self.loss,
-            }, self.resnet_ckpt_file)
-
-            self.validate(self.pase_ckpt_file, self.resnet_ckpt_file)
-            if epoch % 50 == 0:
-                resnet_best_file = os.path.join(self.save_path,'{}-epoch-{}.pth'.\
-                                         format('resnet', epoch))
-                shutil.copy(self.resnet_ckpt_file, resnet_best_file)
-                pase_best_file = os.path.join(self.save_path,'{}-epoch-{}.pth'.\
-                                         format('resnet', epoch))
-                shutil.copy(self.pase_ckpt_file, pase_best_file)
 
             self.loss.reset()
-            # if (epoch + 1) % 1 == 0:
-            #     val_loss = self.val(epoch + 1)
-            #     self.scheduler.step(val_loss)
-            # if (epoch + 1) % 50 == 0:
-            #     self.save(epoch + 1)
+
 
     def validate(self, pase_ckpt_pth, res_ckpt_pth):
         self.logger.write("start validate")
         torch.cuda.empty_cache()
 
-        self.vis_stream = ResNet()
+        # self.vis_stream = ResNet()
         # map_location = self.device
-        res_ckpt = torch.load(res_ckpt_pth,)  # cuda:1
-        res_state_dict = res_ckpt['model_state_dict']
-        self.vis_stream.load_state_dict(res_state_dict)
-        self.vis_stream.to(self.device)
 
-        pase = wf_builder(self.pase_cfg_path).eval()     # read pre-trained model
-        self.aud_stream = AudioStream(pase)
+        res_ckpt = torch.load(res_ckpt_pth)  # cuda:1
+        res_state_dict = res_ckpt['model_state_dict']
+        self.model.vis_stream.load_state_dict(res_state_dict)
+        self.model.vis_stream.to(self.device)
+
+        # pase = wf_builder(self.pase_cfg_path).eval()     # read pre-trained model
+        # self.aud_stream = AudioStream(pase)
         pase_ckpt = torch.load(pase_ckpt_pth)  # cuda:1
         pase_state_dict = pase_ckpt['model_state_dict']
-        self.aud_stream.load_state_dict(pase_state_dict)
-        self.aud_stream.to(self.device)
+        self.model.aud_stream.load_state_dict(pase_state_dict)
+        self.model.aud_stream.to(self.device)
 
         accuracy_calculator = AccuracyCalculator(include=("precision_at_1",), k=1, avg_of_avgs=False)
-        self.validate_VF = validate_for_VF_triplet(self.aud_stream, self.vis_stream,  accuracy_calculator, batch_size=24)
+        self.validate_VF = validate_for_VF_triplet(self.model.aud_stream, self.model.vis_stream, accuracy_calculator, batch_size=24)
         with torch.no_grad():
             # self.model.eval()
             accuracies = self.validate_VF.get_accuracy( self.face_train_data, self.voice_train_data)
             self.logger.write("Test set accuracy (Precision@1) = {}".format(accuracies["precision_at_1"]))
 
-    def test(self):
-        print('Start test..')
-        self.net.eval()
-        cnt = 0
-        total_loss = 0
-        total_acc = 0
-        with torch.no_grad():
-            for step, (real_audio, face_a, face_b, labels) in enumerate(self.test_loader):
-                real_audio = real_audio.to(self.device)
-                face_a = face_a.to(self.device)
-                face_b = face_b.to(self.device)
-                labels = labels.to(self.device)
-                outputs = self.net(face_a, face_b, real_audio)
-                loss = self.criterion(outputs, labels)
-                total_loss += loss
-                _, argmax = torch.max(outputs, 1)
-                accuracy = (labels == argmax.squeeze()).float().mean()
-                total_acc += accuracy
 
-                print('[test] Step[{}/{}]  Loss: {:.8f}  Accuracy: {:.2f}%'.format(
-                    step + 1,
-                    self.test_data.__len__() // self.config['batch_size'],
-                    loss.item(), accuracy.item() * 100
-                ))
-                cnt += 1
-            average_loss = total_loss / cnt
-            average_acc = total_acc / cnt
-            print('[Test]  Average Loss: {:.8f}  Average Accuracy: {:.2f}'.format(
-                average_loss, average_acc))
-        self.model.train()
+    def train_logger(self, preds, labels, losses, epoch, bidx, lrs):
+        self.pase_ckpt_file = os.path.join(self.save_path, '{}-checkpoint.pth'. \
+                                           format('PASE'))
+        torch.save({
+            'epoch': epoch,
+            'arch': self.model.aud_stream.__class__.__name__,  # class name
+            'model_state_dict': self.model.aud_stream.state_dict(),
+            'loss': self.loss,
+        }, self.pase_ckpt_file)
+
+        self.resnet_ckpt_file = os.path.join(self.save_path, '{}-checkpoint.pth'. \
+                                             format('resnet'))
+        torch.save({
+            'epoch': epoch,
+            'arch': self.model.vis_stream.__class__.__name__,  # class name
+            'model_state_dict': self.model.vis_stream.state_dict(),
+            'loss': self.loss,
+        }, self.resnet_ckpt_file)
+
+        self.validate(self.pase_ckpt_file, self.resnet_ckpt_file)
+        if epoch % 50 == 0:
+            resnet_best_file = os.path.join(self.save_path, '{}-epoch-{}.pth'. \
+                                            format('resnet', epoch))
+            shutil.copy(self.resnet_ckpt_file, resnet_best_file)
+            pase_best_file = os.path.join(self.save_path, '{}-epoch-{}.pth'. \
+                                          format('resnet', epoch))
+            shutil.copy(self.pase_ckpt_file, pase_best_file)
+
 
     def save(self, epoch):
         os.makedirs(self.save_path, exist_ok=True)

@@ -12,6 +12,18 @@ sys.path.append("/home/fz/2-VF-feature/JVF-net/model")
 from pase.models.frontend import wf_builder
 import model3
 
+
+def weight_init(m, config):
+    if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+        if config['weight_init'] == 'xavier_uniform':
+            nn.init.xavier_uniform_(m.weight)
+        elif config['weight_init'] == 'kaiming_uniform':
+            nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
+        elif config['weight_init'] == 'gaussian':
+            nn.init.normal_(m.weight, mean=0, std=0.01)
+        else:
+            pass
+
 # we pretrained the network by triplet loss
 class ResNet(nn.Module):
     def __init__(self, ch=64, class_num=1000, activation=F.relu, include_top =False):
