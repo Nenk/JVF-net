@@ -2,23 +2,46 @@ import os
 import numpy as np
 import torch
 import librosa
+import torchaudio
 import random
 import wave
 
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 import json
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
+
 
 from PIL import Image
 from scipy.io import wavfile
+
 
 img_transform = transforms.Compose(
     [transforms.ToTensor(),
      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
 )
 
+
+def load_audio(audio_path, chunk_size=16000, fixed_offset=False, load_raw=True):
+    y = librosa.load(audio_path, sr=None)
+    y = y[0]
+    if fixed_offset:
+        offset = 0
+    else:
+        max_offset = y.shape[0] - chunk_size
+        offset = random.randint(0, max_offset)
+    y = y[offset:offset + chunk_size]
+    if load_raw:
+        y = np.expand_dims(y, axis=0)
+        return y
+    spect = librosa.Spectrogram(y)
+    # for i in range(spect.shape[1]):
+    #     f_bin = spect[:, i]
+    #     f_bin_mean = np.mean(f_bin)
+    #     f_bin_std = np.std(f_bin)
+    #     spect[:, i] = (spect[:, i] - f_bin_mean) / (f_bin_std + 1e-7)
+    # spect = np.expand_dims(spect, axis=0)
+    return spect
 
 def load_face(face_path):
     # NOTE: 3 channels are in BGR order
@@ -50,30 +73,48 @@ class VGG_Face_Dataset(Dataset):
     def __len__(self):
         return len(self.face_list)
 
-class RAVDESS_Face_Dataset(Dataset):
-    def __init__(self, face_list):
+
+class RAVDESS_face_Dataset(Dataset):
+    def __init__(self, data_root, data_cfg_file, split, verbose=True):
+
+        self.data_root = data_root
+        self.data_cfg_file = data_cfg_file
         self.label = []
-        self.face_list = face_list
-        for face_data in self.face_list:
-            self.label.append(int(face_data['emotion']))
+        if not isinstance(data_cfg_file, str):
+            raise ValueError('Please specify a path to a cfg '
+                             'file for loading data.')
 
+        with open(data_cfg_file, 'r') as data_cfg_f:
+            self.data_cfg = json.load(data_cfg_f)
+            self.spk_info = self.data_cfg['speakers']
+            self.emo_info = self.data_cfg['emotions']
+            if verbose:
+                print('dataset.WavDataset:Found {} speakers info'.format(len(self.spk_info)))
+                print('dataset.WavDataset:Found {} emotions info'.format(len(self.emo_info)))
+                imgs = self.data_cfg[split]['data']
+                print('dataset.WavDataset:Found {} files in {} split'.format(len(imgs), split))
 
-
-    def __getitem__(self, index):
-        face_data = self.face_list[index]
-        actor_label = int(face_data['actor_id'])
-        emotion_label = int(face_data['emotion'])
-        real_face_path = face_data['image_path']
-        real_face = load_face(real_face_path)
-        return real_face, emotion_label
+                # spks = self.data_cfg[split]['speakers']
+                # print('dataset.WavDataset:Found {} speakers in {} split'.format(len(spks), split))
+                self.total_images = int(self.data_cfg[split]['total_images'])
+            self.imgs = imgs
+            for item in self.imgs:
+                self.label.append(int(item['emotion']))
 
     def __len__(self):
-        return len(self.face_list)
+        return len(self.imgs)
+
+    def __getitem__(self, index):
+        uttname = self.imgs[index]['filename']
+        actor_label = int(self.imgs[index]['speaker'])
+        emotion_label = int(self.imgs[index]['emotion'])
+        real_face = load_face(uttname)
+        return real_face, emotion_label
 
 
 class RAVDESS_voice_Dataset(Dataset):
     def __init__(self, data_root, data_cfg_file, split,
-                 transform=None, sr=None,
+                 sr=16000,
                  cache_on_load=False,
                  verbose=True,
                  *args, **kwargs):
@@ -87,126 +128,51 @@ class RAVDESS_voice_Dataset(Dataset):
                              'file for loading data.')
 
         self.split = split
-        self.transform = transform
-
+        self.return_spk = False
+        self.label = []
         with open(data_cfg_file, 'r') as data_cfg_f:
             self.data_cfg = json.load(data_cfg_f)
             self.spk_info = self.data_cfg['speakers']
+            self.emo_info = self.data_cfg['emotions']
             if verbose:
                 print('dataset.WavDataset:Found {} speakers info'.format(len(self.spk_info)))
+                print('dataset.WavDataset:Found {} emotions info'.format(len(self.emo_info)))
                 wavs = self.data_cfg[split]['data']
                 print('dataset.WavDataset:Found {} files in {} split'.format(len(wavs), split))
+
                 # spks = self.data_cfg[split]['speakers']
                 # print('dataset.WavDataset:Found {} speakers in {} split'.format(len(spks), split))
                 self.total_wav_dur = int(self.data_cfg[split]['total_wav_dur'])
             self.wavs = wavs
-        self.wav_cache = {}
-
-
+            for item in self.wavs:
+                self.label.append(int(item['emotion']))
     def __len__(self):
         return len(self.wavs)
 
     def retrieve_cache(self, fname, cache):
-        if (self.cache_on_load or self.preload_wav) and fname in cache:
-            return cache[fname]
-        else:
-            wav, rate = librosa.load(fname)
-            wav = wav.numpy().squeeze()
-            #fix in case wav is stereo, in which case
-            #pick first channel only
-            if wav.ndim > 1:
-                wav = wav[:,0]
-            wav = wav.astype(np.float32)
-            if self.cache_on_load:
-                cache[fname] = wav
-            return wav
+        # wav, rate = librosa.load(fname, sr=None)  # torchaudio
+
+        wav, rate = torchaudio.load(fname)
+        wav = wav.numpy().squeeze()
+        #fix in case wav is stereo, in which case
+        #pick first channel only
+        if wav.ndim > 1:
+            wav = wav[:,0]
+        wav = wav.astype(np.float32)
+        if self.cache_on_load:
+            cache[fname] = wav, split='valid'
+        return wav
 
     def __getitem__(self, index):
-
         uttname = self.wavs[index]['filename']
         wname = os.path.join(self.data_root, uttname)
-        wav = self.retrieve_cache(wname, self.wav_cache)
-        if self.transform is not None:
-            wav = self.transform(wav)
-        rets = [wav]
-        if self.return_uttname:
-            rets = rets + [uttname]
-        if self.return_spk:
-            rets = rets + [self.spk2idx[self.wavs[index]['speaker']]]
-        if len(rets) == 1:
-            return rets[0]
-        else:
-            return rets
+        actor_label = int(self.wavs[index]['speaker'])
+        emotion_label = int(self.wavs[index]['emotion'])
+        wav = load_audio(wname, chunk_size=16000, fixed_offset=False, load_raw=True)
+        # if len(rets) == 1:
+        #     return rets[0]
 
-
-class voice_Dataset(Dataset):
-    def __init__(self, data_root, data_cfg_file, split, fixed_offset, load_raw=False):
-        # self.data_dir = data_dir
-        self.fixed_offset = fixed_offset
-        self.load_raw = load_raw
-
-
-
-
-
-    def __getitem__(self, p_index):
-        n_index = p_index
-
-        positive = self.all_triplets[p_index]
-
-        while(n_index == p_index):
-            n_index = np.random.randint(0, self.speakers_num)   # 计算 0~1225之间的随机数
-
-        negative = self.all_triplets[n_index]
-
-        real_audio_path = positive['voice_path'][np.random.randint(0, len(positive['voice_path']))]
-        real_face_path =  positive['face_path'][np.random.randint(0, len(positive['face_path']))]
-        fake_face_path = negative['face_path'][np.random.randint(0, len(negative['face_path']))]
-
-        real_audio = self.load_audio(real_audio_path)
-        real_face = load_face(real_face_path)
-        fake_face = load_face(fake_face_path)
-        which_side = random.randint(0, 1)
-        if which_side == 0:
-            ground_truth = torch.LongTensor([0])
-            face_a = real_face
-            face_b = fake_face
-        else:
-            ground_truth = torch.LongTensor([1])
-            face_a = fake_face
-            face_b = real_face
-        return real_audio, face_a, face_b, ground_truth
-
-    def load_audio(self, audio_path):
-        y = librosa.load(audio_path)
-        y = y[0]
-        if self.fixed_offset:
-            offset = 0
-        else:
-            max_offset = y.shape[0] - 48000
-            offset = random.randint(0, max_offset)
-        y = y[offset:offset+48000]
-        if self.load_raw:
-            y = np.expand_dims(y, axis=0)
-            return y
-        spect = Face_Voice_Dataset.get_spectrogram(y)
-        for i in range(spect.shape[1]):
-            f_bin = spect[:, i]
-            f_bin_mean = np.mean(f_bin)
-            f_bin_std = np.std(f_bin)
-            spect[:, i] = (spect[:, i] - f_bin_mean) / (f_bin_std + 1e-7)
-        spect = np.expand_dims(spect, axis=0)
-        return spect
-
-    def __len__(self):
-        return len(self.all_triplets)
-
-    @staticmethod
-    def get_spectrogram(y, n_fft=1024, hop_length=160, win_length=400, window='hamming'):
-        y_hat = librosa.stft(y, n_fft=n_fft, hop_length=hop_length, win_length=win_length, window=window)
-        y_hat = y_hat[:-1, :-1]
-        D = np.abs(y_hat)
-        return D
+        return wav, emotion_label
 
 
 def custom_collate_fn(batch):
@@ -222,20 +188,20 @@ def custom_collate_fn(batch):
 
 
 if __name__ == '__main__':
+    data_root = '/home/fz/2-VF-feature/JVF-net/dataset/RAVDESS'
+    data_cfg = '/home/fz/2-VF-feature/JVF-net/dataset/RAVDESS/RAVDESS_image_data.cfg'
+    trans = None
+    voice_dataset = RAVDESS_face_Dataset(data_root, data_cfg, split='valid')
 
-    # dataset = Dataset( './dataset/voclexb-VGG_face-datasets/voice_face_list.npy', 'train', False)
-    # loader = DataLoader(dataset, batch_size=8, shuffle=False, drop_last=True, num_workers=8, collate_fn=custom_collate_fn)
-    #
-    # for step, (real_audio, face_a, face_b, ground_truth) in enumerate(loader):
-    #     print(real_audio.shape)  # (B, 1, 512, 300)
-    #     print(face_a.shape)  # (B, 3, 224, 224)
-    #     print(face_b.shape)
-    #     print(ground_truth.shape)  # (B)
+    voice_loader = DataLoader(voice_dataset, batch_size=24, shuffle=True, drop_last=False, num_workers=0)
+    voice_loader = iter(voice_loader)
+    for i in range(10):
 
-    face_dataset = VGG_Face_Dataset('./dataset/voclexb-VGG_face-datasets/voice_face_list.npy', 'train')
-    face_loader = DataLoader(face_dataset, batch_size=24, shuffle=True, drop_last=False, num_workers=8)
+        data, label = next(voice_loader)
+        print(data.shape)  # (B, 1, 512, 300)
+        print(label.shape)  # (B)
 
-    for step, (real_face, ground_truth) in enumerate(face_loader):
-        print(real_face.shape)  # (B, 1, 512, 300)
-        print(ground_truth.shape)  # (B)
-        print(step)
+    # for step, (data, label) in enumerate(voice_loader):
+    #     print(data.shape)  # (B, 1, 512, 300)
+    #     print(label.shape)  # (B)
+    #     print(step)

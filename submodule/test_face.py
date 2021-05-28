@@ -3,7 +3,7 @@ from __future__ import division
 import torch
 import numpy as np
 import torchvision.transforms as transforms
-from model.model4 import ResNet
+from model.SVHF import ResNet
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
 from utils import util

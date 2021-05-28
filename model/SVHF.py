@@ -56,30 +56,30 @@ class AudioStream(nn.Module):
     def __init__(self, pase):
         super().__init__()
         self.pase = pase  # (B, 100, 300) for 3s audio
-        self.fc1 = nn.Linear(100*300, 4096)
-        self.relu1 = nn.ReLU()
-        self.fc2 = nn.Linear(4096, 1024)
-        self.relu2 = nn.ReLU()
+        self.fc1 = nn.Linear(100*256, 128)
+        # self.relu1 = nn.ReLU()
+        # self.fc2 = nn.Linear(2048, 128)
+        # self.relu2 = nn.ReLU()
 
     def forward(self, x):
         x = self.pase(x)
         x = x.view(x.shape[0], -1)
-        x = self.relu1(self.fc1(x))
-        x = self.relu2(self.fc2(x))
+        x = self.fc1(x)
+        # x = self.relu2(self.fc2(x))
         return x
 
 
 class SVHFNet(nn.Module):
     def __init__(self, res_ckpt_path, pase_cfg_path, pase_ckpt_path):
         super().__init__()
-        m3 = model3.SVHFNet()
+        # m3 = model3.SVHFNet()
+        self.vis_stream = ResNet()
         map_location = None if torch.cuda.is_available() else 'cpu'
         check_point = torch.load(res_ckpt_path, map_location=map_location)  # cuda:1
-        state_dict = check_point['net']
-        m3.load_state_dict(state_dict)
-        self.vis_stream = m3.vis_stream
+        state_dict = check_point['model_state_dict']
+        self.vis_stream.load_state_dict(state_dict)
 
-        pase = wf_builder(pase_cfg_path)     # read pre-trained model
+        pase = wf_builder(pase_cfg_path).eval()             # read pre-trained model
         pase.load_pretrained(pase_ckpt_path, load_last=True, verbose=True)
         self.aud_stream = AudioStream(pase)
 
@@ -91,16 +91,25 @@ class SVHFNet(nn.Module):
         self.relu9 = nn.ReLU()
         self.fc10 = nn.Linear(512, 2)
 
-    def forward(self, face_a, face_b, audio):
-        f_a_embedding_ = self.vis_stream(face_a)
-        f_b_embedding = self.vis_stream(face_b)
-        a_embedding = self.aud_stream(audio)
-        a_embedding = F.relu(a_embedding)
-        concat = torch.cat([f_a_embedding_, f_b_embedding, a_embedding], dim=1)
-        x = self.relu8(self.bn8(self.fc8(concat)))
-        x = self.relu9(self.bn9(self.fc9(x)))
-        x = self.fc10(x)
-        return x
+    def forward(self, face, audio):
+        f_a_embedding_ = self.vis_stream(face)
+
+        v_a_embedding = self.aud_stream(audio)
+
+        # a_embedding = F.relu(a_embedding)
+        pkg = {'face_emb': f_a_embedding_, 'voice_emb': v_a_embedding}
+
+        # concat = torch.cat([f_a_embedding_, v_a_embedding], dim=1)
+        #
+        #
+        # x = self.relu8(self.bn8(self.fc8(concat)))
+        # x = self.relu9(self.bn9(self.fc9(x)))
+        # x = self.fc10(x)
+        return pkg
+
+def get_network():
+    pass
+
 
 if __name__ == '__main__':
     # pase_cfg_path = '../../PASE/cfg/PASE.cfg'

@@ -124,7 +124,7 @@ def get_RAVDESS_voice_csv(data_pth, csv_pth, data_ext):
     list_name ={"image":"png", "voice":"wav", "mfcc":"mfcc", "fbank":"fbank", "spectrogram":"spectrogram"}
 
     file_ext = list_name[data_ext]
-    headers = ['actor_id','gender','vocal_channel','emotion','emotion_intensity','voice_path']
+    headers = ['actor_id', 'gender', 'vocal_channel', 'emotion', 'emotion_intensity', 'voice_path']
     emotions = ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']
     # read data directory
     for root, folders, filenames in os.walk(data_pth):      # 音频数据集根目录, 子目录, 文件名

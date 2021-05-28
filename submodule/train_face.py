@@ -7,13 +7,14 @@ import shutil
 import torch
 import numpy as np
 import torch.nn as nn
-import pytorch_metric_learning
+
 # import model.model4 as model4
+from option import Resnet_config
 from torch.utils.data import DataLoader
-from dataset import VGG_Face_Dataset, RAVDESS_Face_Dataset
+from dataset import  RAVDESS_face_Dataset
 from model.SVHF import ResNet
-from utils.parse_dataset import csv_to_list
-from utils import util, config
+
+from utils import util
 from utils.util import Logger, print_log
 from test_face import validate_for_triplet
 
@@ -26,28 +27,33 @@ timestamp = time.strftime("%Y-%m-%d-%H:%M")
 class trainer():
     def __init__(self):
         # --------------------hyperparameters & data loaders-------------------- #
-        self.cfg = config.configure
+        self.cfg = Resnet_config.opt
 
-        train_list, test_list, actor_num, emotion_num = csv_to_list(self.cfg['csv_list'], 0.1)
+        # train_list, test_list, actor_num, emotion_num = csv_to_list(self.cfg['csv_list'], 0.1)
         self.train_cfg = self.cfg['training']
         self.net_cfg = self.cfg['network']
+        self.data_root = self.cfg['data_root']
+        self.data_cfg = self.cfg['data_cfg']
+
+        self.save_path = os.path.join(self.cfg['save_path'], time.strftime("%Y-%h-%d:%H:%M"))
+
         batch_size = self.train_cfg['batch_size']
         num_workers = 8
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        self.face_train_dataset = RAVDESS_Face_Dataset(train_list)
-        self.face_test_dataset = RAVDESS_Face_Dataset(test_list)
+        self.face_train_dataset = RAVDESS_face_Dataset(self.data_root, self.data_cfg, split='train')
+        self.face_test_dataset = RAVDESS_face_Dataset(self.data_root, self.data_cfg, split='valid')
         self.sampler = samplers.MPerClassSampler(self.face_train_dataset.label, m=5, batch_size=batch_size,
                                                  length_before_new_iter=len(self.face_train_dataset))
 
         self.train_loader = DataLoader(self.face_train_dataset, batch_size=batch_size, drop_last=False,
-                                       sampler=self.sampler, shuffle=True, num_workers=num_workers, pin_memory=True)
+                                       sampler=self.sampler, shuffle=False, num_workers=num_workers, pin_memory=True)
 
         self.val_loader = DataLoader(self.face_test_dataset, batch_size=batch_size, drop_last=False,
                                      shuffle=True, num_workers=num_workers, pin_memory=True)
 
-        print("Train_loader numbers: {0:}, val_loader numbers: {1:}".format(len(train_list), len(test_list)))
-        self.net_cfg['class_num'] = emotion_num
+        # print("Train_loader numbers: {0:}, val_loader numbers: {1:}".format(len(train_list), len(test_list)))
+        self.net_cfg['class_num'] = len(self.face_train_dataset.emo_info)
 
         # --------------------model & loss & optimizer----------------------- #
         if self.net_cfg['type'] == 'resnet':
@@ -72,7 +78,9 @@ class trainer():
         self.lr_scheduler = None
 
         # -----------------------log and print ------------------------------ #
-        self.logger = print_log(self.cfg['log_dir'], time.strftime("%Y-%m-%d,%H,%M"))
+        if not os.path.exists(self.save_path):
+            os.makedirs(self.save_path)
+        self.logger = print_log(self.save_path, 'resnet')
 
         self.logger.write(str(self.net_cfg))
         self.logger.write(str(self.train_cfg))
@@ -169,9 +177,9 @@ class trainer():
             self.logger.write(log_str)
 
             # ----------------保存模型----------------------------------------#
-            self.checkpoint_file = os.path.join(self.cfg['checkpoint_dir'],'{}-checkpoint-{}.pth'.
+            self.checkpoint_file = os.path.join(self.save_path,'{}-checkpoint-{}.pth'.
                                                 format(self.net_cfg['type'], timestamp))
-            self.validate(self.checkpoint_file)
+
             torch.save({
                 'epoch': epoch,
                 'iteration': iteration,
@@ -181,9 +189,10 @@ class trainer():
                 'loss': self.loss,
             }, self.checkpoint_file)
 
+            self.validate(self.checkpoint_file)
             if epoch % 20 == 0:
-                best_file = os.path.join(self.cfg['checkpoint_dir'],'{}-model-epoch-{}-T-{}.pth'.
-                                         format(self.net_cfg['type'], epoch, time.strftime("%Y-%m-%d-%H:%M")))
+                best_file = os.path.join(self.save_path,'{}-epoch-{}.pth'.
+                                         format(self.net_cfg['type'], epoch))
                 shutil.copy(self.checkpoint_file, best_file)
 
             self.loss.reset()
@@ -197,7 +206,7 @@ class trainer():
         torch.cuda.empty_cache()
         checkpoint = torch.load(checkpoint_file)
         ckpt = checkpoint['model_state_dict']
-        self.model.load_state_dict(checkpoint['model_state_dict'], strict=True)
+        self.model.load_state_dict(ckpt, strict=True)
         accuracy_calculator = AccuracyCalculator(include=("precision_at_1",), k=1, avg_of_avgs=False)
         self.validate_for_triplet = validate_for_triplet(self.model, accuracy_calculator, batch_size = 24)
         with torch.no_grad():
@@ -207,7 +216,7 @@ class trainer():
 
 if __name__ == '__main__':
     Trainer = trainer()
-    Trainer.train()
+    # Trainer.train()
 
-    # checkpoint_file = "/home/fz/2-VF-feature/JVF-net/saved/resnet-model-epoch-20-T-2021-05-12-14:56.pth"
-    # Trainer.validate(checkpoint_file)
+    checkpoint_file = "/home/fz/2-VF-feature/JVF-net/saved/Resnet/2021-May-26:18:04/resnet-epoch-60.pth"
+    Trainer.validate(checkpoint_file)

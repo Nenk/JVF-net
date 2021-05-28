@@ -74,9 +74,7 @@ def main(opts):
             valid_files = [l.rstrip() for l in valid_f]
             valid_dur = 0
             for ti, valid_file in enumerate(valid_files, start=1):
-                print('Processing valid file {:7d}/{:7d}'.format(ti,
-                                                                 len(valid_files)),
-                      end='\r')
+                print('Processing valid file {:7d}/{:7d}'.format(ti, len(valid_files)), end='\r')
                 spk = spk2idx[valid_file]
                 if spk not in data_cfg['speakers']:
                     data_cfg['speakers'].append(spk)

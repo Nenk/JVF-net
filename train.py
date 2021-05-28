@@ -1,6 +1,6 @@
 import argparse
 import yaml
-from trainer import Solver
+from trainer import trainer
 
 
 def main():
@@ -12,8 +12,8 @@ def main():
 
     with open(args.config_path, 'r') as config:
         config = yaml.load(config.read())
-    solver = Solver(config)
-    solver.fit()
+    Trainer = trainer(config)
+    Trainer.train_()
 
 if __name__ == '__main__':
     main()

@@ -139,9 +139,12 @@ def accuracy(output, target, topk=(1)):
     return res
 
 
-def create_dir(dir_name):
-    if not os.path.exists(dir_name):
-        os.makedirs(dir_name)
+def cycle(dataloader):
+    while True:
+        for data, emotion_label in dataloader:
+
+            yield data,  emotion_label
+
 
 def getLabel(attribution = "",file_path = ""):
     all_img = os.listdir(file_path)
