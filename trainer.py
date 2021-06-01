@@ -9,70 +9,16 @@ import shutil
 from torch.utils.data import DataLoader
 from dataset import RAVDESS_voice_Dataset, RAVDESS_face_Dataset, custom_collate_fn
 from utils.util import Logger, print_log, AverageMeter, cycle, Saver
+from utils.JVF_Miner import TripletMarginMiner
 from tensorboardX import SummaryWriter
-from pase.models.frontend import wf_builder
+
 from model.SVHF import AudioStream, ResNet, SVHFNet
 
 from test import validate_for_VF_triplet
 from pytorch_metric_learning import losses, miners, distances, reducers, samplers, trainers, testers
 from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
-from pytorch_metric_learning.miners import BaseTupleMiner
-from pytorch_metric_learning.utils import loss_and_miner_utils as lmu
 
-class TripletMarginMiner(BaseTupleMiner):
-    """
-    Returns triplets that violate the margin
-    Args:
-        margin
-        type_of_triplets: options are "all", "hard", or "semihard".
-                "all" means all triplets that violate the margin
-                "hard" is a subset of "all", but the negative is closer to the anchor than the positive
-                "semihard" is a subset of "all", but the negative is further from the anchor than the positive
-            "easy" is all triplets that are not in "all"
-    """
 
-    def __init__(self, margin=0.2, type_of_triplets="all", **kwargs):
-        super().__init__(**kwargs)
-        self.margin = margin
-        self.type_of_triplets = type_of_triplets
-        self.add_to_recordable_attributes(list_of_names=["margin"], is_stat=False)
-        self.add_to_recordable_attributes(
-            list_of_names=["avg_triplet_margin", "pos_pair_dist", "neg_pair_dist"],
-            is_stat=True,
-        )
-
-    def mine(self, embeddings, labels, ref_emb, ref_labels):
-        anchor_idx, positive_idx, negative_idx = lmu.get_all_triplets_indices(
-            labels, ref_labels
-        )
-        mat = self.distance(embeddings, ref_emb)
-        ap_dist = mat[anchor_idx, positive_idx]
-        an_dist = mat[anchor_idx, negative_idx]
-        triplet_margin = (
-            ap_dist - an_dist if self.distance.is_inverted else an_dist - ap_dist
-        )
-
-        if self.type_of_triplets == "easy":
-            threshold_condition = triplet_margin > self.margin
-        else:
-            threshold_condition = triplet_margin <= self.margin
-            if self.type_of_triplets == "hard":
-                threshold_condition &= triplet_margin <= 0
-            elif self.type_of_triplets == "semihard":
-                threshold_condition &= triplet_margin > 0
-
-        return (
-            anchor_idx[threshold_condition],
-            positive_idx[threshold_condition],
-            negative_idx[threshold_condition],
-        )
-
-    def set_stats(self, ap_dist, an_dist, triplet_margin):
-        if self.collect_stats:
-            with torch.no_grad():
-                self.pos_pair_dist = torch.mean(ap_dist).item()
-                self.neg_pair_dist = torch.mean(an_dist).item()
-                self.avg_triplet_margin = torch.mean(triplet_margin).item()
 
 
 class trainer(object):
@@ -243,7 +189,7 @@ class trainer(object):
                                self.epoch_time.val, self.loss.avg,
                                self.aud_optim.param_groups[0]['lr'], self.vis_optim.param_groups[0]['lr'],))
 
-
+            self.save(epoch)
 
             self.loss.reset()
 
@@ -276,6 +222,11 @@ class trainer(object):
 
 
     def train_logger(self, preds, labels, losses, epoch, bidx, lrs):
+        pass
+
+
+    def save(self, epoch):
+
         self.pase_ckpt_file = os.path.join(self.save_path, '{}-checkpoint.pth'. \
                                            format('PASE'))
         torch.save({
@@ -300,20 +251,5 @@ class trainer(object):
                                             format('resnet', epoch))
             shutil.copy(self.resnet_ckpt_file, resnet_best_file)
             pase_best_file = os.path.join(self.save_path, '{}-epoch-{}.pth'. \
-                                          format('resnet', epoch))
+                                          format('PASE', epoch))
             shutil.copy(self.pase_ckpt_file, pase_best_file)
-
-
-    def save(self, epoch):
-        os.makedirs(self.save_path, exist_ok=True)
-        if self.config['multi_gpu']:
-            state_dict = self.model.module.state_dict()
-        else:
-            state_dict = self.model.state_dict()
-
-        checkpoint = {
-            'net': state_dict
-        }
-
-        output_path = os.path.join(self.saved_dir, 'model_' + str(epoch) + '.pt')
-        torch.save(checkpoint, output_path)
