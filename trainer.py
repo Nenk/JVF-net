@@ -1,11 +1,10 @@
 import torch
 import torch.nn as nn
 
-import importlib
 import os
 import time
 import shutil
-
+import yaml
 from torch.utils.data import DataLoader
 from dataset import RAVDESS_voice_Dataset, RAVDESS_face_Dataset, custom_collate_fn
 from utils.util import Logger, print_log, AverageMeter, cycle, Saver
@@ -14,10 +13,9 @@ from tensorboardX import SummaryWriter
 
 from model.SVHF import AudioStream, ResNet, SVHFNet
 
-from test import validate_for_VF_triplet
+from test import validate_for_VF_triplet, inference
 from pytorch_metric_learning import losses, miners, distances, reducers, samplers, trainers, testers
 from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
-
 
 
 
@@ -25,7 +23,7 @@ class trainer(object):
     def __init__(self, config):
 
         self.opt = config
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')   # 'cuda' if torch.cuda.is_available() else 'cpu'
         # load_raw = True if config['model'] == 'model4' or config['model'] == 'model5' else False
         self.face_data_root = self.opt['face_data_root']
         self.face_data_cfg = self.opt['face_data_cfg']
@@ -68,14 +66,20 @@ class trainer(object):
         self.face_train_iterator = iter(cycle(self.face_train_loader))
         self.face_val_iterator = iter(cycle(self.face_val_loader))
         model_name = 'model.{}'.format(self.opt['model_name'])
-        # model = importlib.import_module(model_name)
-
 
         self.pase_cfg_path = config['pase_cfg_path']
+        self.model = SVHFNet(self.pase_cfg_path).to(self.device)
+
         if config['load_model']:
             print('Load pretrained model: {}, {}'.format(config['res_ckpt_path'], config['pase_ckpt_path']))
-            self.model = SVHFNet(config['res_ckpt_path'],
-                                 self.pase_cfg_path, config['pase_ckpt_path']).to(self.device)
+            check_point = torch.load(config['res_ckpt_path'])  # cuda:1
+            state_dict = check_point['model_state_dict']
+            self.model.vis_stream.load_state_dict(state_dict)
+            self.model.vis_stream.to(self.device)
+
+            self.model.pase.load_pretrained(config['pase_ckpt_path'], load_last=True, verbose=True)
+            self.model.aud_stream = AudioStream(self.model.pase)
+            self.model.aud_stream.to(self.device)
 
         if config['multi_gpu']:
             print('Use Multi GPU.')
@@ -83,11 +87,11 @@ class trainer(object):
 
         self.criterion = nn.CrossEntropyLoss()
         ### triplet loss setting
-        distance = distances.CosineSimilarity()
+        self.distance = distances.CosineSimilarity()
         reducer = reducers.ThresholdReducer(low=0)
 
-        self.loss_func = losses.TripletMarginLoss(margin=0.2, reducer=reducer, distance=distance)
-        self.mining_func = TripletMarginMiner(margin=0.2, type_of_triplets="semihard", distance=distance)
+        self.loss_func = losses.TripletMarginLoss(margin=0.2, reducer=reducer, distance=self.distance)
+        self.mining_func = TripletMarginMiner(margin=0.2, type_of_triplets="semihard", distance=self.distance)
 
         if config['optim'] == 'SGD':
             print('Use SGD optimizer.')
@@ -119,16 +123,16 @@ class trainer(object):
 
         # -----------------------log and print ------------------------------ #
         self.tensorboard = self.opt['tensorboard']
-
-        if not os.path.exists(self.save_path):
+        self.log = self.opt['log']
+        if not os.path.exists(self.save_path) and self.log:
             os.makedirs(self.save_path)
 
-        if self.tensorboard :
+        if self.tensorboard:
             self.writer = SummaryWriter(self.save_path)
-
-        self.logger = print_log(self.save_path, 'JVF-net')
-        self.logger.write("Use tenoserboard: {}".format(self.tensorboard))
-        self.logger.write(str(self.opt))
+        if self.log:
+            self.logger = print_log(self.save_path, 'JVF-net')
+            self.logger.write("Use tenoserboard: {}".format(self.tensorboard))
+            self.logger.write(str(self.opt))
 
         self.epoch_time = AverageMeter()
         self.batch_time = AverageMeter()
@@ -193,13 +197,9 @@ class trainer(object):
 
             self.loss.reset()
 
-
     def validate(self, pase_ckpt_pth, res_ckpt_pth):
         self.logger.write("start validate")
         torch.cuda.empty_cache()
-
-        # self.vis_stream = ResNet()
-        # map_location = self.device
 
         res_ckpt = torch.load(res_ckpt_pth)  # cuda:1
         res_state_dict = res_ckpt['model_state_dict']
@@ -217,16 +217,33 @@ class trainer(object):
         self.validate_VF = validate_for_VF_triplet(self.model.aud_stream, self.model.vis_stream, accuracy_calculator, batch_size=24)
         with torch.no_grad():
             # self.model.eval()
-            accuracies = self.validate_VF.get_accuracy( self.face_train_data, self.voice_train_data)
+            accuracies = self.validate_VF.get_accuracy(self.face_train_data, self.voice_train_data)
             self.logger.write("Test set accuracy (Precision@1) = {}".format(accuracies["precision_at_1"]))
+
+    def visualization(self, pase_ckpt_pth, res_ckpt_pth):
+        # self.logger.write("start visualization")
+        torch.cuda.empty_cache()
+
+        # load face_network weight
+        res_ckpt = torch.load(res_ckpt_pth)  # cuda:1
+        res_state_dict = res_ckpt['model_state_dict']
+        self.model.vis_stream.load_state_dict(res_state_dict)
+        self.model.vis_stream.to(self.device)
+
+
+        pase_ckpt = torch.load(pase_ckpt_pth)  # cuda:1
+        pase_state_dict = pase_ckpt['model_state_dict']
+        self.model.aud_stream.load_state_dict(pase_state_dict)
+        self.model.aud_stream.to(self.device)
+
+        self.inference = inference(self.model.aud_stream, self.model.vis_stream, self.distance)
+        self.inference.get_nearerst_images(self.face_train_data, self.voice_train_data)
 
 
     def train_logger(self, preds, labels, losses, epoch, bidx, lrs):
         pass
 
-
     def save(self, epoch):
-
         self.pase_ckpt_file = os.path.join(self.save_path, '{}-checkpoint.pth'. \
                                            format('PASE'))
         torch.save({
@@ -253,3 +270,13 @@ class trainer(object):
             pase_best_file = os.path.join(self.save_path, '{}-epoch-{}.pth'. \
                                           format('PASE', epoch))
             shutil.copy(self.pase_ckpt_file, pase_best_file)
+
+if __name__ == '__main__':
+
+    with open('./option/SVHF.yaml', 'r') as config:
+        config = yaml.load(config.read())
+    Trainer = trainer(config)
+
+    pase_ckpt_pth = '/home/fz/2-VF-feature/JVF-net/saved/JVF-net/2021-May-27:16:11/PASE-checkpoint-2021-May-27:16:11.pth'
+    res_ckpt_pth = '/home/fz/2-VF-feature/JVF-net/saved/JVF-net/2021-May-27:16:11/resnet-checkpoint-2021-May-27:16:11.pth'
+    Trainer.visualization(pase_ckpt_pth=pase_ckpt_pth, res_ckpt_pth=res_ckpt_pth)

@@ -29,7 +29,6 @@ class trainer():
         # --------------------hyperparameters & data loaders-------------------- #
         self.cfg = Resnet_config.opt_softmax
 
-        # train_list, test_list, actor_num, emotion_num = csv_to_list(self.cfg['csv_list'], 0.1)
         self.train_cfg = self.cfg['training']
         self.net_cfg = self.cfg['network']
         self.data_root = self.cfg['data_root']
@@ -47,7 +46,7 @@ class trainer():
         #                                          length_before_new_iter=len(self.face_train_dataset))
 
         self.train_loader = DataLoader(self.face_train_dataset, batch_size=batch_size, drop_last=False,
-                                       shuffle=False, num_workers=num_workers, pin_memory=True)
+                                       shuffle=True, num_workers=num_workers, pin_memory=True)
 
         self.val_loader = DataLoader(self.face_test_dataset, batch_size=batch_size, drop_last=False,
                                      shuffle=True, num_workers=num_workers, pin_memory=True)
@@ -63,13 +62,14 @@ class trainer():
         self.model = self.model.to(self.device)
 
         ### cross entropy loss
-        self.loss_func  = nn.CrossEntropyLoss()
-
+        self.loss_func = nn.CrossEntropyLoss()
         self.loss_func = self.loss_func.to(self.device)
-
-        self.optim = torch.optim.SGD(self.model.parameters(), lr=self.train_cfg['lr'])
-
-        self.lr_scheduler = None
+        self.optim = torch.optim.SGD(self.model.parameters(), lr=self.train_cfg['lr'],
+                                     momentum=self.train_cfg['momentum'], weight_decay=self.train_cfg['weight_decay'])
+        # self.optim = torch.optim.Adam(self.model.parameters(), lr=self.train_cfg['lr'])
+        self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optim, step_size = 20,
+                                                            gamma = 0.9, last_epoch = -1)
+        # self.lr_scheduler = None
 
         # -----------------------log and print ------------------------------ #
         if not os.path.exists(self.save_path):
@@ -95,24 +95,22 @@ class trainer():
         print("Start training")
 
         for epoch in range(self.start_epoch, self.max_epoch+1):  # 调整进度条宽度为80
-
             self.model.train()
             self.optim.zero_grad()
 
             epoch_end = time.time()
             iter_end = time.time()
 
-            for batch_idx, (imgs, target) in enumerate(self.train_loader,start=1):
+            for batch_idx, (imgs, target) in enumerate(self.train_loader, start=1):
                 iteration = batch_idx + epoch * len(self.train_loader)
-
+                target = target - 1
                 # self.iteration = iteration
                 imgs, target = imgs.to(self.device), target.to(self.device)
-                target = target-1
+
                 embeddings = self.model(imgs)
+                loss = self.loss_func(embeddings, target)
 
-                loss = self.loss_func(embeddings,target)
-
-                ## measure accuracy for softmax
+                # measure accuracy for softmax
                 pred = embeddings.argmax(dim=1, keepdim=False)
                 correct = pred.eq(target.view_as(pred)).sum().item() / float(imgs.size(0))  # tensor --> python number
 
@@ -120,8 +118,7 @@ class trainer():
                 self.optim.zero_grad()
                 loss.backward()
                 self.optim.step()
-                if self.lr_scheduler is not None:
-                    self.lr_scheduler.step()  # update lr
+
 
                 # ---------迭次信息输出----------------- #
                 self.batch_time.update(time.time() - iter_end)
@@ -131,22 +128,24 @@ class trainer():
                 if iteration % self.print_freq == 0:
                     self.logger.write('Train:[{0}/{1}]\t '
                                       'epoch:{2} iter:{3}, Batch Time:{4:.2f}\t' \
-                                      'Loss: {5:.4f}, accuracy:{6:.4f}\t' \
+                                      'Loss: {5:.4f}, accuracy:{6:.6f}\t' \
                                       'lr {7:.6f}'.format(\
                                 batch_idx, len(self.train_loader), epoch, iteration,
                                 self.batch_time.val, self.loss.val, self.top1.val,
                                 self.optim.param_groups[0]['lr'] ))
                 iter_end = time.time()
 
+            if self.lr_scheduler is not None:
+               self.lr_scheduler.step()  # update lr
             # -------------------轮次信息输出--------------------- #
             self.epoch_time.update(time.time() - epoch_end)
 
-            self.logger.write('\n Epoch_summary: epoch: {0}\t ' \
+            self.logger.write('\nEpoch_summary: epoch: {0}\t ' \
                               'iter: {1}, Epoch Time: {2:.2f}\t' \
-                              'Loss: {3:.4f}, accuracy:{4:.4f}, lr {5:.6f}\t'  \
+                              'Loss_avg: {3:.4f}, accuracy:{4:.6f}, lr {5:.6f}\t \n'  \
                          .format(\
                          epoch, iteration, self.epoch_time.val,
-                         self.loss.val,  self.top1.val,
+                         self.loss.avg,  self.top1.avg,
                          self.optim.param_groups[0]['lr']))
 
             # ----------------保存模型----------------------------------------#
@@ -163,7 +162,7 @@ class trainer():
             }, self.checkpoint_file)
 
 
-            if epoch % 20 == 0:
+            if epoch % 10 == 0:
                 best_file = os.path.join(self.save_path,'{}-epoch-{}.pth'.
                                          format(self.net_cfg['type'], epoch))
                 shutil.copy(self.checkpoint_file, best_file)

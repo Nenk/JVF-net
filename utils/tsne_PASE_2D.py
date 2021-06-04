@@ -20,6 +20,7 @@ from tqdm import tqdm, trange
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patheffects as PathEffects
+import matplotlib.font_manager as font_manager
 from sklearn.manifold import TSNE
 from mpl_toolkits.mplot3d import Axes3D
 
@@ -31,26 +32,24 @@ def scatter(embeddings, labels, color):
     labels = np.array(labels)
     embeddings_min, embeddings_max = np.min(embeddings, 0), np.max(embeddings, 0)
     embeddings_ = (embeddings - embeddings_min) / (embeddings_max - embeddings_min)
-
-    fig = plt.figure(figsize=(7, 7))
-    ax = plt.subplot(aspect='equal')
     x = embeddings_[:, 0]
     y = embeddings_[:, 1]
 
-    # for name in ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']:
-    #     n = 750
-    #     x, y = np.random.rand(2, n)
-    #     scale = 200.0 * np.random.rand(n)
-    #     ax.scatter(x, y, c=color, s=18, label=name,
-    #                alpha=0.3, edgecolors='none')
-    # fig, ax = plt.subplots()
+    fig = plt.figure(figsize=(7, 6))
+    ax = plt.subplot(aspect='equal')
 
+    for index, name in enumerate(['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']):
+        indexs = np.where(labels == index)
+        ax.scatter(x[indexs], y[indexs], c=palette[labels[indexs]], s=16, label=name, edgecolors='none')
 
     # sns.scatterplot(embeddings_[:, 0], embeddings_[:, 1], hue=labels, legend='full', palette=sns.color_palette("hls", num_classes))
     # scatter = ax.scatter(x, y, lw=0, s=16, c=palette[labels])
-    handles, _ = scatter.legend_elements(prop='colors')
-    ax.legend(handles, labels)
-    # ax.legend(loc="upper left", fontsize=14)
+    font = font_manager.FontProperties(family='Times New Roman',
+                                       weight='bold',
+                                       style='normal', size=16)
+    ax.legend(prop=font)
+    legend = ax.legend(bbox_to_anchor=(0.90,1.1),loc="upper left")
+
     ax.axis('off')
     # ax.axis('tight')
     plt.xticks([])
@@ -59,10 +58,9 @@ def scatter(embeddings, labels, color):
     # plt.ylim([0,1])
     # plt.xticks(fontsize=14, family = "Times New Roman")
     # plt.yticks(fontsize=14, family = "Times New Roman")
-    plt.tight_layout()
+    plt.tight_layout(rect=[0,0,1,1])
 
     # add the labels for each digit corresponding to the label
-
     txts = []
     for i in range(0, num_classes):
         # Position of each label at median of data points.
@@ -130,7 +128,6 @@ if __name__ == '__main__':
     pase_ckpt = torch.load(pase_ckpt_path)  # cuda:1
     pase_state_dict = pase_ckpt['model_state_dict']
     aud_stream.load_state_dict(pase_state_dict)
-
 
     embeddings, label, color = get_embeddings_from_model(voice_data_root, voice_data_cfg, aud_stream)
     print('embedding numbers: {:d}'.format(len(label)))

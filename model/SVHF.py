@@ -26,7 +26,7 @@ def weight_init(m, config):
 
 # we pretrained the network by triplet loss
 class ResNet(nn.Module):
-    def __init__(self, ch=64, class_num=1000, activation=F.relu, include_top =False):
+    def __init__(self, ch=64, class_num=1000, activation=F.relu, include_top=False):
         super(ResNet, self).__init__()
         self.include_top = include_top
 
@@ -82,18 +82,14 @@ class AudioStream(nn.Module):
 
 
 class SVHFNet(nn.Module):
-    def __init__(self, res_ckpt_path, pase_cfg_path, pase_ckpt_path):
+    def __init__(self, pase_cfg_path):
         super().__init__()
         # m3 = model3.SVHFNet()
         self.vis_stream = ResNet()
-        map_location = None if torch.cuda.is_available() else 'cpu'
-        check_point = torch.load(res_ckpt_path, map_location=map_location)  # cuda:1
-        state_dict = check_point['model_state_dict']
-        self.vis_stream.load_state_dict(state_dict)
+        # map_location = None if torch.cuda.is_available() else 'cpu'
 
-        pase = wf_builder(pase_cfg_path).eval()             # read pre-trained model
-        pase.load_pretrained(pase_ckpt_path, load_last=True, verbose=True)
-        self.aud_stream = AudioStream(pase)
+        self.pase = wf_builder(pase_cfg_path).eval()             # read pre-trained model
+        self.aud_stream = AudioStream(self.pase)
 
         self.fc8 = nn.Linear(3072, 1024)
         self.bn8 = nn.BatchNorm1d(1024)

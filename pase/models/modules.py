@@ -267,8 +267,8 @@ class Saver(object):
     def load_pretrained_ckpt(self, ckpt_file, load_last=False, load_opt=True,
                              verbose=True):
         model_dict = self.model.state_dict() 
-        st_dict = torch.load(ckpt_file, 
-                             map_location=lambda storage, loc: storage)
+        # st_dict = torch.load(ckpt_file,  map_location=lambda storage, loc: storage)  # GPU->CPU
+        st_dict = torch.load(ckpt_file)
         if 'state_dict' in st_dict:
             pt_dict = st_dict['state_dict']
         else:

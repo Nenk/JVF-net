@@ -28,7 +28,8 @@ val_sample_dir: ./val_sample
 save_path: ./saved/JVF-net/
 max_ckpts: 5
 
-tensorboard: True
+tensorboard: False
+log: False
 multi_gpu: False
 gpu_ids:
     - 0
