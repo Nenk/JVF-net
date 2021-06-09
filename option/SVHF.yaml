@@ -11,9 +11,9 @@ voice_data_cfg: /home/fz/2-VF-feature/JVF-net/dataset/RAVDESS/RAVDESS_voice_data
 face_data_root: /home/fz/2-VF-feature/JVF-net/dataset/RAVDESS/1 image-Actor1-24
 face_data_cfg: /home/fz/2-VF-feature/JVF-net/dataset/RAVDESS/RAVDESS_image_data.cfg
 
-voice_batch_size: 16
-face_batch_size: 24
-num_workers: 8
+voice_batch_size: 24
+face_batch_size: 32
+num_workers: 0
 
 lr: 0.001
 epoch: 2000

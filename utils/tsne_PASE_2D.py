@@ -25,7 +25,7 @@ from sklearn.manifold import TSNE
 from mpl_toolkits.mplot3d import Axes3D
 
 
-def scatter(embeddings, labels, color):
+def scatter(embeddings, labels, pase_ckpt_path):
     num_classes = len(np.unique(labels))
     palette = np.array(sns.color_palette("hls", num_classes))
     emotion_str = np.array(['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised'])
@@ -71,7 +71,7 @@ def scatter(embeddings, labels, color):
             PathEffects.Normal()])
         txts.append(txt)
 
-    fig.savefig('Tsne-RAVDESS-audio_net-train-JF-net.png', dpi = 600)
+    fig.savefig('Tsne-RAVDESS-audio_net-train-JF-net-{}.png'.format(pase_ckpt_path.split('/')[-2]), dpi = 600)
     plt.show()
 
 
@@ -121,10 +121,9 @@ if __name__ == '__main__':
     # model = SVHFNet(res_ckpt_path, pase_cfg_path, pase_ckpt_path_ori).to(device)
 
     pase = wf_builder(pase_cfg_path).eval()  # read pre-trained model
-
     aud_stream = AudioStream(pase)
 
-    pase_ckpt_path ='/home/fz/2-VF-feature/JVF-net/saved/JVF-net/2021-May-27:16:24/PASE-checkpoint-2021-May-27:16:24.pth'
+    pase_ckpt_path ='/home/fz/2-VF-feature/JVF-net/saved/JVF-net/2021-Jun-05:22:40/PASE-epoch-800.pth'
     pase_ckpt = torch.load(pase_ckpt_path)  # cuda:1
     pase_state_dict = pase_ckpt['model_state_dict']
     aud_stream.load_state_dict(pase_state_dict)
@@ -132,7 +131,7 @@ if __name__ == '__main__':
     embeddings, label, color = get_embeddings_from_model(voice_data_root, voice_data_cfg, aud_stream)
     print('embedding numbers: {:d}'.format(len(label)))
     tsne = TSNE(n_components=2).fit_transform(embeddings)
-    scatter(tsne, label, color)
+    scatter(tsne, label, pase_ckpt_path)
     print('tsne shape: {:}'.format(tsne.shape))
 
 

@@ -63,12 +63,12 @@ class ResNet(nn.Module):
 
         return h
 
-# RestNet for visual stream, PASE for audio stream / All network is pretrained.
 class AudioStream(nn.Module):
     def __init__(self, pase):
         super().__init__()
         self.pase = pase  # (B, 100, 300) for 3s audio
         self.fc1 = nn.Linear(100*256, 128)
+        self.bn1 = nn.BatchNorm1d(128)
         # self.relu1 = nn.ReLU()
         # self.fc2 = nn.Linear(2048, 128)
         # self.relu2 = nn.ReLU()
@@ -77,18 +77,46 @@ class AudioStream(nn.Module):
         x = self.pase(x)
         x = x.view(x.shape[0], -1)
         x = self.fc1(x)
+        x = self.bn1(x)
         # x = self.relu2(self.fc2(x))
+        return x
+
+
+# RestNet for visual stream, PASE for audio stream / All network is pretrained.
+class AudioStream_v2(nn.Module):
+    def __init__(self, pase):
+        super().__init__()
+        self.pase = pase  # (B, 100, 300) for 3s audio
+        self.fc1 = nn.Sequential(
+                  nn.Linear(256, 1024),
+                  nn.BatchNorm1d(1024),
+                  nn.ReLU(inplace=False),
+        )
+        self.fc2 = nn.Sequential(
+                  nn.ReLU(inplace=False),
+                  nn.Linear(1024, 8),
+                  # nn.BatchNorm1d(128),
+        )
+        # self.fc2 = nn.Linear(2048, 128)
+        # self.relu2 = nn.ReLU()
+
+    def forward(self, x):
+        x = self.pase(x)
+        x = F.avg_pool1d(x, kernel_size=x.shape[2], stride=1)  # 对所有C求平均值,并保证不同时长的音频特征有相同输出
+        x = x.view(x.shape[0], -1)
+        x = self.fc1(x)
+        x = self.fc2(x)
         return x
 
 
 class SVHFNet(nn.Module):
     def __init__(self, pase_cfg_path):
         super().__init__()
-        # m3 = model3.SVHFNet()
+        # self.vis_stream_ = ResNet()
         self.vis_stream = ResNet()
         # map_location = None if torch.cuda.is_available() else 'cpu'
 
-        self.pase = wf_builder(pase_cfg_path).eval()             # read pre-trained model
+        self.pase = wf_builder(pase_cfg_path).eval()   # read pre-trained model from pase
         self.aud_stream = AudioStream(self.pase)
 
         self.fc8 = nn.Linear(3072, 1024)
@@ -119,19 +147,25 @@ def get_network():
 
 
 if __name__ == '__main__':
-    # pase_cfg_path = '../../PASE/cfg/PASE.cfg'
-    # pase_ckpt_path = '../../PASE/model/FE_e199.ckpt'
-    # res_ckpt_path = '../../saved/model3_bn/model_16.pt'
-    net = ResNet()
-    print(net)
+
     device = torch.device('cuda')
-    net = net.to(device)
-    summary(net, (3,224,224))
 
-    # face_a = torch.empty((2, 3, 224, 224))
-    # face_b = torch.empty((2, 3, 224, 224))
-    # audio_a = torch.empty((2, 1, 48000))
+    # net = ResNet()
+    # print(net)
+    # net = net.to(device)
+    # summary(net, (3,224,224))
 
-    # net = SVHFNet(res_ckpt_path, pase_cfg_path, pase_ckpt_path)
-    # output = net(face_a, face_b, audio)
-    # print(output.shape)
+    pase_cfg_path = '/home/fz/2-VF-feature/PASE/cfg/frontend/PASE.cfg'
+    pase_ckpt_path =  '/home/fz/2-VF-feature/PASE/saved_model/RAVDESS_ckpt/2021-May-22:11:00/FE_e+800.ckpt'
+    res_ckpt_path = '../../saved/model3_bn/model_16.pt'
+    face_a = torch.empty((2, 3, 224, 224))
+    audio_a = torch.empty((2, 1, 16000))   # batch_size * time * chunk_size
+
+    pase = wf_builder(pase_cfg_path).eval()  # read pre-trained model from pase
+    aud_stream = AudioStream(pase)
+    aud_stream = aud_stream.to(device)
+    print(aud_stream)
+    summary(aud_stream, (1, 16000))
+
+    # output = model( audio_a.to(device))
+    # print(output['voice_emb'].shape)

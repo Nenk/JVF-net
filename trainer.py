@@ -39,9 +39,9 @@ class trainer(object):
         self.face_batch_size = self.opt['face_batch_size']
         self.num_workers = self.opt['num_workers']
 
-        self.voice_sampler = samplers.MPerClassSampler(self.voice_train_data.label, m=2, batch_size=self.voice_batch_size,
+        self.voice_sampler = samplers.MPerClassSampler(self.voice_train_data.label, m=3, batch_size=self.voice_batch_size,
                                                  length_before_new_iter=len(self.voice_train_data))
-        self.face_sampler = samplers.MPerClassSampler(self.face_train_data.label, m=3, batch_size=self.face_batch_size,
+        self.face_sampler = samplers.MPerClassSampler(self.face_train_data.label, m=4, batch_size=self.face_batch_size,
                                                  length_before_new_iter=len(self.face_train_data))
         self.voice_train_loader = DataLoader(self.voice_train_data,
                                              batch_size=self.voice_batch_size,
@@ -101,13 +101,13 @@ class trainer(object):
         elif config['optim'] == 'Adam':
             print('Use Adam optimizer.')
             self.aud_optim = torch.optim.Adam(params=self.model.aud_stream.parameters(), lr=0.0001)
-            self.vis_optim = torch.optim.Adam(params=self.model.vis_stream.parameters(), lr=0.00005)
+            self.vis_optim = torch.optim.Adam(params=self.model.vis_stream.parameters(), lr=0.001)
 
 
         self.aud_scheduler = torch.optim.lr_scheduler.StepLR(self.aud_optim, step_size=50,
-                                                             gamma=0.5, last_epoch=-1)
+                                                             gamma=0.9, last_epoch=-1)
         self.vis_scheduler = torch.optim.lr_scheduler.StepLR(self.vis_optim, step_size=50,
-                                                             gamma=0.5, last_epoch=-1)
+                                                             gamma=0.9, last_epoch=-1)
 
         self.savers = []
         self.timestamp = time.strftime("%Y-%h-%d:%H:%M")
@@ -145,6 +145,7 @@ class trainer(object):
         self.start_epoch = 1
         self.max_epoch = self.opt['epoch']
 
+
     def train_(self):
         self.logger.write('Start training..')
         self.logger.write('Batches per epoch: {}'.format(self.bpe))
@@ -176,7 +177,7 @@ class trainer(object):
                 self.vis_optim.step()
                 self.loss.update(loss.item(),1)
 
-                # 迭次信息输出
+                # ------------迭次信息输出--------------#
                 if bidx % 10 == 0:
                     step = epoch * self.bpe + bidx
                     self.logger.write('Batch {}/{} (Epoch {}) step: {} Loss: {:f}:'. \
@@ -187,15 +188,20 @@ class trainer(object):
             self.epoch_time.update(time.time() - epoch_end)
 
             self.logger.write('Train: epoch: [{0:}/{1:}]\t ' \
-                              'Epoch Time: {2:.3f}, Loss_avg: {3:f}\t' \
-                              'pase_lr: {4:.6f}, resnet_lr:{5:.6f}'.format(\
+                              'Epoch Time: {2:.3f}, Loss_avg: {3:f},\t' \
+                              'pase_lr: {4:f}, resnet_lr:{5:f}'.format(\
                                epoch, self.max_epoch,
                                self.epoch_time.val, self.loss.avg,
                                self.aud_optim.param_groups[0]['lr'], self.vis_optim.param_groups[0]['lr'],))
 
-            self.save(epoch)
+            pase_ckpt_file, resnet_ckpt_file = self.save(epoch)
+            accuracies = self.validate(pase_ckpt_file, resnet_ckpt_file)
 
+            if self.writer:
+                self.writer.add_scalar('train/{}_loss'.format('total'), loss.item(), global_step=epoch)
+                self.writer.add_scalar('train/{}_acc'.format('total'), accuracies, global_step=epoch)
             self.loss.reset()
+
 
     def validate(self, pase_ckpt_pth, res_ckpt_pth):
         self.logger.write("start validate")
@@ -216,9 +222,11 @@ class trainer(object):
         accuracy_calculator = AccuracyCalculator(include=("precision_at_1",), k=1, avg_of_avgs=False)
         self.validate_VF = validate_for_VF_triplet(self.model.aud_stream, self.model.vis_stream, accuracy_calculator, batch_size=24)
         with torch.no_grad():
-            # self.model.eval()
             accuracies = self.validate_VF.get_accuracy(self.face_train_data, self.voice_train_data)
-            self.logger.write("Test set accuracy (Precision@1) = {}".format(accuracies["precision_at_1"]))
+            self.logger.write("Test set accuracy (Precision@1) = {} \n".format(accuracies["precision_at_1"]))
+
+        return accuracies["precision_at_1"]
+
 
     def visualization(self, pase_ckpt_pth, res_ckpt_pth):
         # self.logger.write("start visualization")
@@ -237,8 +245,9 @@ class trainer(object):
         self.model.aud_stream.to(self.device)
 
         self.inference = inference(self.model.aud_stream, self.model.vis_stream, self.distance)
-        self.inference.get_nearerst_images(self.face_train_data, self.voice_train_data)
+        # self.inference.get_nearerst_images(self.face_train_data, self.voice_train_data)
 
+        self.inference.get_pairs_images_from_voice(self.face_train_data, self.voice_train_data)
 
     def train_logger(self, preds, labels, losses, epoch, bidx, lrs):
         pass
@@ -262,7 +271,7 @@ class trainer(object):
             'loss': self.loss,
         }, self.resnet_ckpt_file)
 
-        self.validate(self.pase_ckpt_file, self.resnet_ckpt_file)
+
         if epoch % 50 == 0:
             resnet_best_file = os.path.join(self.save_path, '{}-epoch-{}.pth'. \
                                             format('resnet', epoch))
@@ -270,6 +279,7 @@ class trainer(object):
             pase_best_file = os.path.join(self.save_path, '{}-epoch-{}.pth'. \
                                           format('PASE', epoch))
             shutil.copy(self.pase_ckpt_file, pase_best_file)
+        return self.pase_ckpt_file, self.resnet_ckpt_file
 
 if __name__ == '__main__':
 
@@ -277,6 +287,6 @@ if __name__ == '__main__':
         config = yaml.load(config.read())
     Trainer = trainer(config)
 
-    pase_ckpt_pth = '/home/fz/2-VF-feature/JVF-net/saved/JVF-net/2021-May-27:16:11/PASE-checkpoint-2021-May-27:16:11.pth'
-    res_ckpt_pth = '/home/fz/2-VF-feature/JVF-net/saved/JVF-net/2021-May-27:16:11/resnet-checkpoint-2021-May-27:16:11.pth'
+    pase_ckpt_pth = '/home/fz/2-VF-feature/JVF-net/saved/JVF-net/2021-Jun-05:22:40/PASE-epoch-800.pth'
+    res_ckpt_pth = '/home/fz/2-VF-feature/JVF-net/saved/JVF-net/2021-Jun-05:22:40/resnet-epoch-800.pth'
     Trainer.visualization(pase_ckpt_pth=pase_ckpt_pth, res_ckpt_pth=res_ckpt_pth)
