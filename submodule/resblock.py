@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchsummary import summary
 
+
+
 class Block(nn.Module):  # ResNet-18, 34, omiting norm layers
     def __init__(self, in_channels, out_channels, hidden_channels=None, k_size=3, pad=1, activation=F.relu, downsample=False):
         super(Block, self).__init__()
@@ -11,6 +13,7 @@ class Block(nn.Module):  # ResNet-18, 34, omiting norm layers
         self.downsample = downsample
 
         self.conv1 = nn.Conv2d(in_channels, hidden_channels, k_size, padding=pad)
+        self.bn1 = nn.BatchNorm2d(hidden_channels)
         self.conv2 = nn.Conv2d(hidden_channels, out_channels, k_size, padding=pad)
         self.learnable_sc = (in_channels != out_channels) or downsample
         if self.learnable_sc:

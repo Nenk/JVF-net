@@ -3,11 +3,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 import sys
 import os
+
+import torch.onnx
+import onnx
+from onnx import shape_inference
+import netron
+
 from torchsummary import summary
 from submodule.resblock import Block, OptimizedBlock
-# pase_path = os.path.abspath('/home/fz/2-VF-feature/pase')
-# sys.path.append(pase_path)
-# print('Add pase to system path:', pase_path)
+
 sys.path.append("/home/fz/2-VF-feature/JVF-net/model")
 from pase.models.frontend import wf_builder
 import model3
@@ -24,12 +28,11 @@ def weight_init(m, config):
         else:
             pass
 
-# we pretrained the network by triplet loss
+# we pretrained the network by triplet loss 11111
 class ResNet(nn.Module):
     def __init__(self, ch=64, class_num=1000, activation=F.relu, include_top=False):
         super(ResNet, self).__init__()
         self.include_top = include_top
-
         self.activation = activation
         self.block1 = OptimizedBlock(3, ch)
         self.block2 = Block(ch, ch * 2, activation=activation, downsample=True)
@@ -50,18 +53,13 @@ class ResNet(nn.Module):
         h = self.block5(h)
         h = self.block6(h)
 
-        # h = F.relu(h)
-        # h = torch.sum(h, (2, 3))  # Global sum pooling.
-
         h = self.avgpool(h)
-        # if not self.include_top:
-        #     return x
-
         h = h.view(h.size(0), -1)
         h = self.fc1(h)
         # h = self.fc2(h)
 
         return h
+
 
 class AudioStream(nn.Module):
     def __init__(self, pase):
@@ -105,6 +103,8 @@ class AudioStream_v2(nn.Module):
         x = F.avg_pool1d(x, kernel_size=x.shape[2], stride=1)  # 对所有C求平均值,并保证不同时长的音频特征有相同输出
         x = x.view(x.shape[0], -1)
         x = self.fc1(x)
+        # if not self.include_top:
+        #     return x
         x = self.fc2(x)
         return x
 
@@ -149,23 +149,40 @@ def get_network():
 if __name__ == '__main__':
 
     device = torch.device('cuda')
-
-    # net = ResNet()
-    # print(net)
-    # net = net.to(device)
-    # summary(net, (3,224,224))
-
     pase_cfg_path = '/home/fz/2-VF-feature/PASE/cfg/frontend/PASE.cfg'
     pase_ckpt_path =  '/home/fz/2-VF-feature/PASE/saved_model/RAVDESS_ckpt/2021-May-22:11:00/FE_e+800.ckpt'
     res_ckpt_path = '../../saved/model3_bn/model_16.pt'
+
+    # load resnet
+    net = ResNet()
+    print(net)
+    net = net.to(device)
+    summary(net, (3, 224, 224))
+    input = torch.rand(1, 3, 224, 224).to(device)
+    #
+    # # visualize for resnet
+    # out = net(input)
+    # onnx_path = "onnx_model_ResNet.onnx"
+    # torch.onnx.export(net, input, onnx_path)
+    # onnx.save(onnx.shape_inference.infer_shapes(onnx.load(onnx_path)), onnx_path)
+    # netron.start(onnx_path)
+
+    # load PASE
     face_a = torch.empty((2, 3, 224, 224))
-    audio_a = torch.empty((2, 1, 16000))   # batch_size * time * chunk_size
+    input = torch.rand((2, 1, 16000)).to(device)   # batch_size * time * chunk_size
 
     pase = wf_builder(pase_cfg_path).eval()  # read pre-trained model from pase
+
     aud_stream = AudioStream(pase)
     aud_stream = aud_stream.to(device)
     print(aud_stream)
     summary(aud_stream, (1, 16000))
+
+    # out = aud_stream(input)
+    # onnx_path = "onnx_model_Pase.onnx"
+    # torch.onnx.export(aud_stream, input, onnx_path)
+    # onnx.save(onnx.shape_inference.infer_shapes(onnx.load(onnx_path)), onnx_path)
+    # netron.start(onnx_path)
 
     # output = model( audio_a.to(device))
     # print(output['voice_emb'].shape)

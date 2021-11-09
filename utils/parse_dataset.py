@@ -11,26 +11,31 @@ def get_dataset_files(data_dir, data_ext, celeb_ids):
     """
     从文件夹中读取voice或face数据
     """
+    new_folder_root = '/home/fz/2-VF-feature/JVF-net/dataset/voclexb-VGG_face-datasets/1-vox1-VGG'
     data_list = []
-    # # rename image folder(face) name
+    # # rename image folder(face) name to ID, e.g. Admir_kHan --> id10001
     # for root, dirs, _ in sorted(os.walk(data_dir)):
     #     for dir in dirs:
     #         folder_pth = os.path.join(root, dir)
     #         folder = folder_pth[len(data_dir):].split('/')[1]
     #         celeb_name = celeb_ids.get(folder, folder)    # default_value不设置的话默认为None，设置的话即如果找不到则返回default设定的值
     #         if celeb_name != folder:
-    #             new_folder_pth = os.path.join(root, celeb_name)
-    #             os.rename(folder_pth, new_folder_pth)
+    #             new_folder_pth = os.path.join(new_folder_root, celeb_name)
+    #             shutil.copytree(folder_pth,new_folder_pth)
+    #             # os.rename(folder_pth, new_folder_pth)
 
-    # read data directory
+    # read data directory to create data_list
     for root, dirs, filenames in sorted(os.walk(data_dir)):
         for filename in filenames:
             if filename.endswith(data_ext):
                 filepath = os.path.join(root, filename)
                 folder = filepath[len(data_dir):].split('/')[1]
                 celeb_name = celeb_ids.get(folder, folder) #  default_value不设置的话默认为None，设置的话即如果找不到则返回default设定的值
-                if celeb_name != folder:
-                    data_list.append({'folder_name':folder, 'name': celeb_name, 'filepath': filepath})
+                if celeb_name != folder and data_ext =='jpg':
+                    data_list.append({'folder_id':folder, 'name': celeb_name, 'face_path': filepath})
+                if celeb_name != folder and data_ext =='wav':
+                    data_list.append({'folder_id':folder, 'name': celeb_name, 'voice_path': filepath})
+
 
     return data_list
 
@@ -38,9 +43,6 @@ def get_dataset_files(data_dir, data_ext, celeb_ids):
 def get_voclexb_labels(voice_list, face_list, celeb_ids):
     """
     合并voice和face中的同类项目
-    :param voice_list:
-    :param face_list:
-    :return:
     """
     voice_names = {item['name'] for item in voice_list}
     face_names = {item['name'] for item in face_list}
@@ -55,29 +57,31 @@ def get_voclexb_labels(voice_list, face_list, celeb_ids):
     names = list(sorted(names))      # 增加排序, 固定名字与序列号
     for step, item in enumerate(names):
         label_dict[item] = step
-    # label_dict = dict(zip(names, range(len(names))))
-    temp1 = []
-    temp2 = []
+    label_dict = dict(zip(names, range(len(names))))
+
 
     # 建立face-list,
-    for item in face_list:
-        item['id'] = label_dict[item['name']]
+    for item in voice_list+face_list:
+        item['actor_id'] = label_dict[item['name']]
 
+
+    # temp1 = []
+    # temp2 = []
     # 建立联合组voice+face-list, 利用name来分类
-    for name in names[:]:
-        for item in voice_list:   # 为list增加序号label_id
-            if name == item['name']:
-                temp1.append(item['filepath'])
-        for item in face_list:
-            if name == item['name']:
-                temp2.append(item['filepath'])
-        voice_face_list.append({'name': name, 'id_num': label_dict[name], 'id': celeb_ids[name],
-                               'voice_path': copy.deepcopy(temp1), 'face_path': copy.deepcopy(temp2)})
-        print(name)
-        temp1.clear()
-        temp2.clear()
+    # for name in names[:]:
+    #     for item in voice_list:   # 为list增加序号label_id
+    #         if name == item['name']:
+    #             temp1.append(item['filepath'])
+    #     for item in face_list:
+    #         if name == item['name']:
+    #             temp2.append(item['filepath'])
+    #     voice_face_list.append({'name': name, 'id_num': label_dict[name], 'id': celeb_ids[name],
+    #                            'voice_path': copy.deepcopy(temp1), 'face_path': copy.deepcopy(temp2)})
+    #     print(name)
+    #     temp1.clear()
+    #     temp2.clear()
 
-    return voice_face_list, face_list
+    return voice_list, face_list
 
 
 def get_voclexb_csv(csv_files, voice_folder, face_folder):
@@ -86,8 +90,8 @@ def get_voclexb_csv(csv_files, voice_folder, face_folder):
     :param data_params:
     :return: 数据路径以及标签,speaker数量
     """
-    csv_headers = ['name','id_num', 'id' ,'voice_path', 'face_path']
-    face_csv_headers = ['folder_name', 'filepath', 'id', 'name']
+    csv_voice_headers = ['folder_id', 'actor_id', 'name', 'voice_path']
+    csv_face_headers = ['folder_id',  'actor_id', 'name', 'face_path']
     triplet_list = []
     actor_dict, actor_dict1 = {}, {}
 
@@ -98,17 +102,25 @@ def get_voclexb_csv(csv_files, voice_folder, face_folder):
             actor_dict[actor_ID] = name
             actor_dict1[name] = actor_ID
 
+    face_list=[]
+
     face_list = get_dataset_files(face_folder, 'jpg', actor_dict)
     voice_list = get_dataset_files(voice_folder, 'wav', actor_dict)
-    voice_face_list, face_list = get_voclexb_labels(voice_list, face_list, actor_dict1)
-    # np.save('./dataset/voclexb-VGG_face-datasets/face_list.npy', face_list)
-    np.save('./dataset/voclexb-VGG_face-datasets/voice_face_list.npy', voice_face_list)
-    csv_pth = os.path.join('./dataset/voclexb-VGG_face-datasets/', 'voice_face_list.csv')
-    print(csv_pth)
-    with open(csv_pth,'w',newline='', ) as f:
-        f_scv = csv.DictWriter(f, csv_headers, delimiter = ',', lineterminator = '\n')
+    voice_list, face_list = get_voclexb_labels(voice_list, face_list, actor_dict1)
+
+    csv_face_pth = os.path.join('../dataset/voclexb-VGG_face-datasets/', 'vocelexb_face.csv')
+    print(csv_face_pth)
+    with open(csv_face_pth,'w',newline='', ) as f:
+        f_scv = csv.DictWriter(f, csv_face_headers, delimiter = ',', lineterminator = '\n')
         f_scv.writeheader()
-        f_scv.writerows(voice_face_list)
+        f_scv.writerows(face_list)
+
+    csv_voice_pth = os.path.join('../dataset/voclexb-VGG_face-datasets/', 'vocelexb_voice.csv')
+    print(csv_voice_pth)
+    with open(csv_voice_pth,'w',newline='', ) as f:
+        f_scv = csv.DictWriter(f, csv_voice_headers, delimiter = ',', lineterminator = '\n')
+        f_scv.writeheader()
+        f_scv.writerows(voice_list)
 
     return len(actor_dict)
 
@@ -230,14 +242,14 @@ if __name__ == '__main__':
     # get_RAVDESS_dataset(DATASET_PARAMETERS)
     # data_dir = 'data/RAVDESS/fbank'
 
-    # csv_files = './dataset/voclexb-VGG_face-datasets/vox1_meta.csv'
-    # voice_folder = '/home/fz/2-VF-feature/JVF-net/dataset/voclexb-VGG_face-datasets/2-voice-wav'
-    # face_folder = '/home/fz/2-VF-feature/JVF-net/dataset/voclexb-VGG_face-datasets/1-face'
-    # num = get_voclexb_csv(csv_files, voice_folder, face_folder)
+    csv_files = '/home/fz/2-VF-feature/JVF-net/dataset/voclexb-VGG_face-datasets/vox1_meta.csv'
+    voice_folder = '/home/fz/2-VF-feature/JVF-net/dataset/voclexb-VGG_face-datasets/1-vox1-wav-all'
+    face_folder = '/home/fz/2-VF-feature/JVF-net/dataset/voclexb-VGG_face-datasets/0-vox1-VGG-face'
+    num = get_voclexb_csv(csv_files, voice_folder, face_folder)
 
-    voice_data_pth = '/home/fz/2-VF-feature/JVF-net/dataset/RAVDESS/2 wave-Actor1-24-16k'
-    image_data_pth = '/home/fz/2-VF-feature/JVF-net/dataset/RAVDESS/1 image-Actor1-24'
-    csv_pth = "/home/fz/2-VF-feature/JVF-net/dataset/RAVDESS"
-    # get_RAVDESS_face_csv( image_data_pth, csv_pth, 'image')
-    get_RAVDESS_voice_csv( voice_data_pth, csv_pth, 'voice')
+    # voice_data_pth = '/home/fz/2-VF-feature/JVF-net/dataset/RAVDESS/2 wave-Actor1-24-16k'
+    # image_data_pth = '/home/fz/2-VF-feature/JVF-net/dataset/RAVDESS/1 image-Actor1-24'
+    # csv_pth = "/home/fz/2-VF-feature/JVF-net/dataset/RAVDESS"
+    # # get_RAVDESS_face_csv( image_data_pth, csv_pth, 'image')
+    # get_RAVDESS_voice_csv( voice_data_pth, csv_pth, 'voice')
 

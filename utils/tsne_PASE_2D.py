@@ -3,7 +3,7 @@ import os
 import time
 import torch
 import random
-from model.SVHF import AudioStream, ResNet, SVHFNet
+from model.SVHF import AudioStream, AudioStream_v2, ResNet, SVHFNet
 import seaborn as sns
 from pase.models.frontend import wf_builder
 
@@ -121,9 +121,9 @@ if __name__ == '__main__':
     # model = SVHFNet(res_ckpt_path, pase_cfg_path, pase_ckpt_path_ori).to(device)
 
     pase = wf_builder(pase_cfg_path).eval()  # read pre-trained model
-    aud_stream = AudioStream(pase)
+    aud_stream = AudioStream(pase)   # v2
 
-    pase_ckpt_path ='/home/fz/2-VF-feature/JVF-net/saved/JVF-net/2021-Jun-05:22:40/PASE-epoch-800.pth'
+    pase_ckpt_path ='/home/fz/2-VF-feature/JVF-net/saved/JVF-net/2021-Jun-05:22:40/PASE-epoch-0.pth'
     pase_ckpt = torch.load(pase_ckpt_path)  # cuda:1
     pase_state_dict = pase_ckpt['model_state_dict']
     aud_stream.load_state_dict(pase_state_dict)
