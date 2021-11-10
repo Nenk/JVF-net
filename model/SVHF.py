@@ -108,7 +108,27 @@ class AudioStream_v2(nn.Module):
         x = self.fc2(x)
         return x
 
-
+# class ShareBlock(nn.Module):
+#     def __init__(self,in_dim,out_dim):
+#         self.fc = nn.Linear(in_dim,out_dim)
+#         self.relu = nn.ReLU()
+#     def forward(x):
+#         x = self.fc(x)
+#         x = self.relu(x)
+#         return x
+# class ShareNet(nn.Module):
+#     def __init__(self,module_dim):
+#         super().__init__()
+#         assert len(module_dim)>1
+#         self.model = nn.ModuleList((
+#             ShareBlock(module_dim[i-1],module_dim[i])
+#             for i in range(1,len(module_dim))
+#         ))
+#     def forward(x):
+#         for my_module in self.model:
+#             x = my_module(x)
+#         return x
+    
 class SVHFNet(nn.Module):
     def __init__(self, pase_cfg_path):
         super().__init__()
@@ -126,11 +146,14 @@ class SVHFNet(nn.Module):
         self.bn9 = nn.BatchNorm1d(512)
         self.relu9 = nn.ReLU()
         self.fc10 = nn.Linear(512, 2)
-
+        # self.share = ShareNet([128,128])
     def forward(self, face, audio):
         f_a_embedding_ = self.vis_stream(face)
         v_a_embedding = self.aud_stream(audio)
-
+        # share
+        # f_a_embedding_ = self.share(f_a_embedding_)
+        # v_a_embedding = self.share(v_a_embedding)
+        
         # a_embedding = F.relu(a_embedding)
         pkg = {'face_emb': f_a_embedding_, 'voice_emb': v_a_embedding}
 
